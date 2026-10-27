@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    ports: ["8000:8000"]
+    env_file:
+      - path: backend/.env
+        required: false
+    environment:
+      VAYU_CORS_ORIGINS: http://localhost:8000
+    volumes:
+      - vayu-data:/data
+    restart: unless-stopped
+
+  # Optional long-term time-series store. Enable with VAYU_TIMESERIES_BACKEND=influx
+  # and VAYU_INFLUX_URL=http://influxdb:8086 in backend/.env.
+  influxdb:
+    image: influxdb:2.7
+    profiles: ["influx"]
+    ports: ["8086:8086"]
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: vayu
+      DOCKER_INFLUXDB_INIT_PASSWORD: change-me-please
+      DOCKER_INFLUXDB_INIT_ORG: vayu
+      DOCKER_INFLUXDB_INIT_BUCKET: aqi
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: change-me-token
+    volumes:
+      - influx-data:/var/lib/influxdb2
+
+volumes:
+  vayu-data:
+  influx-data:
