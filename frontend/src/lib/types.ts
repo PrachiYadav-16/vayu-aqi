@@ -74,6 +74,47 @@ export interface Profile {
   notify_trip_advisories: boolean;
   quiet_start_hour: number | null;
   quiet_end_hour: number | null;
+  language: "en" | "hi" | "kn";
+  notify_daily_brief: boolean;
+  brief_hour: number;
+}
+
+export interface Budget {
+  budget_ug: number;
+  used_ug: number;
+  projected_ug: number;
+  used_pct: number;
+  projected_pct: number;
+  cigarettes_used: number;
+  cigarettes_projected: number;
+  tracked_hours: number;
+  estimated: boolean;
+}
+
+export interface HomeAdvice {
+  windows: { action: "open" | "brief" | "closed"; text: string; from: string; to: string; aqi: number };
+  purifier: { action: "run" | "optional"; text: string; from?: string; to?: string; aqi: number };
+}
+
+export interface Explanation {
+  trend: "up" | "down" | "flat";
+  change: number;
+  summary: string;
+  factors: { factor: string; direction: "up" | "down"; effect: number; text: string }[];
+}
+
+export interface Here extends PointForecast {
+  advice: {
+    level: "ok" | "caution" | "avoid";
+    headline: string;
+    actions: string[];
+    threshold: number;
+    next_breach: { ts: string; aqi: number } | null;
+    cleanest_hour: { ts: string; aqi: number };
+  };
+  budget: Budget;
+  home: HomeAdvice | null;
+  explain: Explanation | null;
 }
 
 export interface Place {
@@ -101,6 +142,7 @@ export interface RouteOption {
   peak_aqi: number;
   category: CategoryKey;
   dose_ug: number;
+  cigarettes: number;
   minutes_above_threshold: number;
   is_fastest: boolean;
   is_cleanest: boolean;

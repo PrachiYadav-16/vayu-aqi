@@ -137,3 +137,44 @@ def test_here_gives_personal_advice(client, auth):
     assert adv["threshold"] == 100
     assert adv["level"] in ("ok", "caution", "avoid")
     assert adv["cleanest_hour"]["aqi"] <= max(h["aqi"] for h in r["hours"][:12])
+
+
+def test_here_has_insights(client, auth):
+    r = client.get("/api/me/here", headers=auth, params={"lat": 12.95, "lon": 77.6}).json()
+    assert r["budget"]["budget_ug"] == 270
+    assert r["home"]["windows"]["action"] in ("open", "brief", "closed")
+    assert r["explain"]["trend"] in ("up", "down", "flat")
+
+
+def test_language_switch_translates_advice(client, auth):
+    assert client.patch("/api/me", headers=auth, json={"language": "kn"}).json()["language"] == "kn"
+    r = client.get("/api/me/here", headers=auth, params={"lat": 12.95, "lon": 77.6}).json()
+    assert "ಗಾಳಿ" in r["advice"]["headline"]
+    assert client.patch("/api/me", headers=auth, json={"language": "xx"}).status_code == 422
+    client.patch("/api/me", headers=auth, json={"language": "en"})
+
+
+def test_daily_brief_in_hindi(client, auth):
+    client.patch("/api/me", headers=auth, json={"language": "hi", "home_lat": 12.93, "home_lon": 77.62})
+    created = client.post("/api/alerts/brief-now", headers=auth).json()["created"]
+    assert created and created[0]["kind"] == "daily_brief"
+    assert "आज की हवा" in created[0]["title"] and "सिगरेट" in created[0]["body"]
+    client.patch("/api/me", headers=auth, json={"language": "en"})
+
+
+def test_one_time_trip_alert_check_does_not_crash(client, auth):
+    r = client.post("/api/trips", headers=auth, json=_trip_body(label="Once"))
+    assert r.status_code == 201
+    assert client.post("/api/alerts/check-now", headers=auth).status_code == 200
+    client.delete(f"/api/trips/{r.json()['id']}", headers=auth)
+
+
+def test_trip_has_cigarettes(client, auth):
+    a = client.post("/api/trips/assess", headers=auth, json=_trip_body()).json()
+    assert all(r["cigarettes"] >= 0 for r in a["routes"])
+
+
+def test_timestamps_carry_utc_offset(client, auth):
+    client.post("/api/alerts/brief-now", headers=auth)
+    alerts = client.get("/api/alerts", headers=auth).json()["alerts"]
+    assert alerts and alerts[0]["created_at"].endswith(("+00:00", "Z"))

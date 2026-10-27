@@ -9,6 +9,10 @@ const paths: Record<string, string> = {
   swap: "M7 4v16M7 4L3 8M7 4l4 4M17 20V4M17 20l-4-4M17 20l4-4",
   close: "M6 6l12 12M18 6L6 18",
   trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
+  window: "M5 3h14v18H5zM12 3v18M5 12h14",
+  purifier: "M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2zM9 7h6M9 10h6M12 18a2.5 2.5 0 100-5 2.5 2.5 0 000 5z",
+  lungs: "M12 3v9M12 12c-1.5 0-2.5 1-3.5 3S7 20 5 20s-2-3-2-6 2-8 5-8c2 0 2 2 2 3M12 12c1.5 0 2.5 1 3.5 3S17 20 19 20s2-3 2-6-2-8-5-8c-2 0-2 2-2 3",
+  wind: "M3 8h11a3 3 0 10-3-3M3 12h15a3 3 0 11-3 3M3 16h7",
 };
 
 export function Icon({ name, size = 20 }: { name: keyof typeof paths | string; size?: number }) {

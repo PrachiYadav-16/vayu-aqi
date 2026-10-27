@@ -12,12 +12,33 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from app.db import Base
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class UTCDateTime(TypeDecorator):
+    """Stores UTC and always hands back timezone-aware datetimes.
+
+    SQLite drops the offset, which would make the API return naive timestamps
+    that browsers then read as local time."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(timezone.utc)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
 
 
 class User(Base):
@@ -27,7 +48,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     # Health profile. Sensitivity groups drive personal alert thresholds.
     sensitivity: Mapped[list] = mapped_column(JSON, default=list)  # e.g. ["asthma", "elderly"]
@@ -41,6 +62,9 @@ class User(Base):
     notify_trip_advisories: Mapped[bool] = mapped_column(Boolean, default=True)
     quiet_start_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)  # local hour
     quiet_end_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    language: Mapped[str] = mapped_column(String(8), default="en", server_default="en")
+    notify_daily_brief: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    brief_hour: Mapped[int] = mapped_column(Integer, default=7, server_default="7")  # local hour, IST
 
     trips: Mapped[list["Trip"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
@@ -68,7 +92,7 @@ class Reading(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     station_id: Mapped[str] = mapped_column(ForeignKey("stations.id", ondelete="CASCADE"))
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ts: Mapped[datetime] = mapped_column(UTCDateTime())
     pm25: Mapped[float | None] = mapped_column(Float, nullable=True)
     pm10: Mapped[float | None] = mapped_column(Float, nullable=True)
     no2: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -89,7 +113,7 @@ class LocationPing(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ts: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
     accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -108,11 +132,11 @@ class Trip(Base):
     dest_name: Mapped[str] = mapped_column(String(255))
     dest_lat: Mapped[float] = mapped_column(Float)
     dest_lon: Mapped[float] = mapped_column(Float)
-    depart_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    depart_at: Mapped[datetime] = mapped_column(UTCDateTime())
     mode: Mapped[str] = mapped_column(String(16), default="driving")
     repeat_weekdays: Mapped[list] = mapped_column(JSON, default=list)  # 0=Mon .. 6=Sun
     last_assessment: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="trips")
 
@@ -128,7 +152,7 @@ class Alert(Base):
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(String(1000))
     data: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     read: Mapped[bool] = mapped_column(Boolean, default=False)
     delivered_push: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -140,14 +164,14 @@ class DeviceToken(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     token: Mapped[str] = mapped_column(String(512), unique=True)
     platform: Mapped[str] = mapped_column(String(32), default="web")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class ModelRun(Base):
     __tablename__ = "model_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    trained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    trained_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     version: Mapped[str] = mapped_column(String(64))
     metrics: Mapped[dict] = mapped_column(JSON, default=dict)
     promoted: Mapped[bool] = mapped_column(Boolean, default=False)

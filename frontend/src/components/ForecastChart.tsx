@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { catFor } from "../lib/aqi";
-import { hourLabel } from "../lib/format";
+import { axisLabel, hourLabel } from "../lib/format";
+import { useT, type Key } from "../lib/i18n";
 import type { HourForecast } from "../lib/types";
 
 interface Props {
@@ -12,6 +13,8 @@ interface Props {
 /** 24 hourly columns coloured by CPCB category, with the 80% band as a whisker. */
 export function ForecastChart({ current, hours, threshold }: Props) {
   const [focus, setFocus] = useState<number | null>(null);
+  const { t } = useT();
+  const now = t("map.now");
   const W = 420;
   const H = 190;
   const pad = { l: 28, r: 4, t: 14, b: 22 };
@@ -42,12 +45,12 @@ export function ForecastChart({ current, hours, threshold }: Props) {
                 fill={cat.color} opacity={focus == null || focus === i ? 1 : 0.55} tabIndex={0}
                 onMouseEnter={() => setFocus(i)} onMouseLeave={() => setFocus(null)}
                 onFocus={() => setFocus(i)} onBlur={() => setFocus(null)}
-                aria-label={`${i === 0 ? "Now" : hourLabel(c.ts)}: AQI ${c.aqi}`} />
+                aria-label={`${i === 0 ? now : hourLabel(c.ts)}: AQI ${c.aqi}`} />
               {i > 0 && (
                 <line className="whisker" x1={x + cw / 2} x2={x + cw / 2} y1={y(c.high)} y2={y(c.low)} />
               )}
               {(i === 0 || i % 6 === 0) && (
-                <text x={x + cw / 2} y={H - 8} textAnchor="middle">{i === 0 ? "Now" : hourLabel(c.ts)}</text>
+                <text x={x + cw / 2} y={H - 8} textAnchor="middle">{i === 0 ? now : axisLabel(c.ts)}</text>
               )}
             </g>
           );
@@ -56,7 +59,7 @@ export function ForecastChart({ current, hours, threshold }: Props) {
           <g>
             <line className="thr" x1={pad.l} x2={W - pad.r} y1={y(threshold)} y2={y(threshold)} />
             <text className="thr-label" x={W - pad.r - 2} y={y(threshold) - 5} textAnchor="end">
-              Alert level {threshold}
+              {t("chart.alert_level", { t: threshold })}
             </text>
           </g>
         )}
@@ -64,11 +67,11 @@ export function ForecastChart({ current, hours, threshold }: Props) {
       <p className="fchart-readout" aria-live="polite">
         {f ? (
           <>
-            <b>{focus === 0 ? "Now" : hourLabel(f.ts)}</b>: AQI {f.aqi} ({catFor(f.aqi).label})
-            {focus !== 0 && <span className="muted">, likely between {f.low} and {f.high}</span>}
+            <b>{focus === 0 ? now : hourLabel(f.ts)}</b>: AQI {f.aqi} ({t(`cat.${catFor(f.aqi).key}` as Key)})
+            {focus !== 0 && <span className="muted">{t("chart.range", { lo: f.low, hi: f.high })}</span>}
           </>
         ) : (
-          <span className="tiny">Bars show the most likely AQI each hour. Thin lines show the range it will probably fall in.</span>
+          <span className="tiny">{t("chart.hint")}</span>
         )}
       </p>
     </div>

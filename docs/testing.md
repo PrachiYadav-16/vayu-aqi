@@ -2,14 +2,15 @@
 
 ## Automated tests
 
-`cd backend && pytest -q` runs 36 tests in about 10 seconds against a throwaway SQLite database with
+`cd backend && pytest -q` runs 50 tests in about 12 seconds against a throwaway SQLite database with
 routing and geocoding forced offline.
 
 | File | Covers |
 |---|---|
 | `tests/test_core.py` | CPCB breakpoints and band gaps, dominant pollutant, PM2.5 inverse, categories, thresholds, advice levels, IDW, interpolation staying inside a city, polyline decoding |
+| `tests/test_insights.py` | Every server message has all three languages, time formatting per language, cigarette constant, window and purifier advice on good and bad days, budget growth, explanation thresholds |
 | `tests/test_model.py` | NumPy GRU output equals PyTorch output; simulator determinism |
-| `tests/test_api.py` | Health, stations, personal advice, point forecasts and intervals, out-of-coverage flag, map grid masking, register/login errors, auth guard, threshold updates, location consent and deletion, trip assessment, car vs cycle dose, mode validation, trip CRUD, alert firing and cooldown, offline place search |
+| `tests/test_api.py` | Health, stations, personal advice, point forecasts and intervals, out-of-coverage flag, map grid masking, register/login errors, auth guard, threshold updates, location consent and deletion, trip assessment, car vs cycle dose, mode validation, trip CRUD, alert firing and cooldown, offline place search, insights on the here endpoint, language switch, Hindi morning brief, one-time trip checks, cigarettes per route, UTC offsets on timestamps |
 
 CI runs the backend tests and a frontend type-check and build on every push (`.github/workflows/ci.yml`).
 
@@ -17,7 +18,8 @@ CI runs the backend tests and a frontend type-check and build on every push (`.g
 
 The full path location capture → forecaster → route advisory → dashboard was exercised in a headless
 Chromium session: sign in, Air now with geolocation, Plan a trip from Koramangala to Electronic City,
-Saved trips, Alerts, My exposure and Settings, on a 1440 px desktop and a 390 px phone viewport. The only
+Saved trips, Alerts (including the morning brief), My exposure and Settings, in English, Hindi and
+Kannada, on a 1440 px desktop and a 390 px phone viewport. The only
 console errors were map tiles and web fonts that the test machine could not download.
 
 ## Load test

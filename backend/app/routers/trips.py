@@ -21,7 +21,8 @@ def modes():
 def assess_trip(body: AssessIn, user: User = Depends(current_user)):
     try:
         return assess((body.origin.lat, body.origin.lon), (body.destination.lat, body.destination.lon),
-                      body.depart_at, body.mode, user.sensitivity, user.custom_threshold)
+                      body.depart_at, body.mode, user.sensitivity, user.custom_threshold,
+                      user.language or "en")
     except RuntimeError as exc:
         raise HTTPException(503, str(exc))
 

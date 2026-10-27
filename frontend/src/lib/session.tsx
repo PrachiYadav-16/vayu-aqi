@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, getToken, post, setToken } from "./api";
+import { useT, type Lang } from "./i18n";
 import type { Meta, Profile } from "./types";
 
 interface Position {
@@ -16,7 +17,7 @@ interface SessionValue {
   position: Position | null;
   positionError: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (data: { email: string; name: string; password: string; sensitivity: string[] }) => Promise<void>;
+  register: (data: { email: string; name: string; password: string; sensitivity: string[]; language: Lang }) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
   setUser: (p: Profile) => void;
@@ -33,6 +34,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [position, setPosition] = useState<Position | null>(null);
   const [positionError, setPositionError] = useState<string | null>(null);
   const lastPing = useRef(0);
+  const { setLang } = useT();
 
   const refresh = useCallback(async () => {
     if (!getToken()) {
@@ -41,13 +43,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      setUser(await api<Profile>("/api/me"));
+      const me = await api<Profile>("/api/me");
+      setUser(me);
+      if (me.language) setLang(me.language);
     } catch {
       setUser(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setLang]);
 
   useEffect(() => {
     refresh();
@@ -103,7 +107,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await refresh();
   };
 
-  const register = async (data: { email: string; name: string; password: string; sensitivity: string[] }) => {
+  const register = async (data: { email: string; name: string; password: string; sensitivity: string[]; language: Lang }) => {
     const t = await post<{ access_token: string }>("/api/auth/register", data);
     setToken(t.access_token);
     await refresh();

@@ -1,23 +1,20 @@
 import { CATS, catFor } from "../lib/aqi";
 import { ago } from "../lib/format";
+import { useT, type Key } from "../lib/i18n";
 import { useSession } from "../lib/session";
 
-export function AqiBlock({ aqi, label = true }: { aqi: number; label?: boolean }) {
-  const c = catFor(aqi);
-  return (
-    <span className="aqi-block" style={{ background: c.color, color: c.ink }}>
-      <span className="n">{aqi}</span>
-      {label && <span className="l">{c.label}</span>}
-    </span>
-  );
+export function useCatLabel() {
+  const { t } = useT();
+  return (aqi: number) => t(`cat.${catFor(aqi).key}` as Key);
 }
 
 export function CatChip({ aqi }: { aqi: number }) {
+  const label = useCatLabel();
   const c = catFor(aqi);
   return (
     <span className="chip">
       <i style={{ background: c.color }} />
-      {c.label}
+      {label(aqi)}
     </span>
   );
 }
@@ -26,9 +23,7 @@ export function Legend() {
   return (
     <div className="legend" aria-label="AQI scale">
       {CATS.map((c) => (
-        <span key={c.key} style={{ background: c.color, color: c.ink }}>
-          {c.low}-{c.high}
-        </span>
+        <span key={c.key} style={{ background: c.color, color: c.ink }}>{c.low}-{c.high}</span>
       ))}
     </div>
   );
@@ -36,15 +31,17 @@ export function Legend() {
 
 export function DataNote() {
   const { meta } = useSession();
+  const { t } = useT();
   if (!meta?.latest_reading) return null;
   return (
     <p className="data-note">
-      Readings updated {ago(meta.latest_reading)}.{" "}
-      {meta.data_mode === "simulated" && <b>Demo data: no live station feed is connected.</b>}
+      {t("data.updated", { ago: ago(meta.latest_reading, t) })}{" "}
+      {meta.data_mode === "simulated" && <b>{t("data.demo")}</b>}
     </p>
   );
 }
 
-export function Loading({ what }: { what: string }) {
-  return <p className="muted" role="status">Loading {what}...</p>;
+export function Loading() {
+  const { t } = useT();
+  return <p className="muted" role="status">{t("common.loading")}</p>;
 }

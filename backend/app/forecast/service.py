@@ -24,6 +24,15 @@ from app.store.timeseries import get_store
 
 log = logging.getLogger(__name__)
 POLLUTANTS = ["pm25", "pm10", "no2", "o3", "co", "so2"]
+EXPLAIN_GROUPS = [
+    ("traffic", ["traffic"]),
+    ("wind", ["wind_speed", "wind_u", "wind_v"]),
+    ("weather", ["temp", "humidity"]),
+    ("time", ["hour_sin", "hour_cos", "dow_sin", "dow_cos"]),
+    ("season", ["doy_sin", "doy_cos"]),
+    ("city", ["city_aqi"]),
+    ("trend", ["aqi_delta"]),
+]
 
 
 @dataclass
@@ -38,6 +47,7 @@ class StationForecast:
     current_pollutants: np.ndarray      # (S, 6) concentrations
     quantiles: np.ndarray               # (S, H, 3) AQI
     model_version: str
+    inputs: np.ndarray | None = None    # (S, WINDOW, F) scaled model inputs, kept for explanations
 
 
 class ForecastService:
@@ -46,6 +56,7 @@ class ForecastService:
         self._cache: StationForecast | None = None
         self._model: NumpyGRUForecaster | None = None
         self._meta: dict | None = None
+        self._explain_cache: dict = {}
         self.reload_model()
 
     # ------------------------------------------------------------ model
@@ -104,6 +115,7 @@ class ForecastService:
         pol = np.array([[float(last_rows.at[s, p]) if s in last_rows.index and pd.notna(last_rows.at[s, p]) else np.nan
                          for p in POLLUTANTS] for s in sids])
 
+        Xs = None
         if self._model is not None:
             Xs = apply_scaler(X, self._meta["scaler"])
             q = self._model.predict(Xs, aqi_now)
@@ -123,6 +135,7 @@ class ForecastService:
             current_pollutants=pol,
             quantiles=q,
             model_version=version,
+            inputs=Xs,
         )
 
     @staticmethod
@@ -141,6 +154,48 @@ class ForecastService:
                 spread = 0.15 * med + 2 * h
                 out[i, h] = [max(0, med - spread), med, med + spread]
         return out
+
+    # ------------------------------------------------------------ explanations
+
+    def explain_station(self, idx: int) -> list[dict] | None:
+        """Occlusion attribution: replace one group of inputs with its training
+        average (0 after scaling) and see how much the next-6-hour forecast moves.
+        A positive effect means that factor is pushing AQI up compared with
+        typical conditions."""
+        sf = self.station_forecasts()
+        if sf is None or sf.inputs is None or self._model is None:
+            return None
+        key = (sf.issued_at, idx)
+        cached = self._explain_cache.get(key)
+        if cached is not None:
+            return cached
+        base_x = sf.inputs[idx:idx + 1]
+        variants = [base_x]
+        for _, feats in EXPLAIN_GROUPS:
+            x = base_x.copy()
+            for f in feats:
+                x[..., FEATURES.index(f)] = 0.0
+            variants.append(x)
+        batch = np.concatenate(variants)
+        now = np.repeat(sf.current_aqi[idx:idx + 1], len(variants))
+        pred = self._model.predict(batch, now)[:, :6, 1].mean(axis=1)
+        out = [{"factor": name, "effect": round(float(pred[0] - pred[i + 1]), 1)}
+               for i, (name, _) in enumerate(EXPLAIN_GROUPS)]
+        out.sort(key=lambda d: abs(d["effect"]), reverse=True)
+        if len(self._explain_cache) > 500:
+            self._explain_cache.clear()
+        self._explain_cache[key] = out
+        return out
+
+    def nearest_station(self, lat: float, lon: float) -> int | None:
+        sf = self.station_forecasts()
+        if sf is None:
+            return None
+        from app.forecast.spatial import haversine_matrix
+
+        d = haversine_matrix([lat], [lon], sf.lat, sf.lon)[0]
+        i = int(np.argmin(d))
+        return i if d[i] <= SEARCH_RADIUS_KM else None
 
     # ------------------------------------------------------------ points
 

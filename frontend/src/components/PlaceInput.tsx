@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { useT } from "../lib/i18n";
 import type { Place } from "../lib/types";
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
 
 export function PlaceInput({ label, value, onChange, near, currentLocation }: Props) {
   const id = useId();
+  const { t } = useT();
   const [text, setText] = useState(value?.name ?? "");
   const [results, setResults] = useState<Place[]>([]);
   const [open, setOpen] = useState(false);
@@ -55,7 +57,7 @@ export function PlaceInput({ label, value, onChange, near, currentLocation }: Pr
       <input
         className="input"
         value={text}
-        placeholder="Search a place or area"
+        placeholder={t("plan.search")}
         role="combobox"
         aria-expanded={open && options.length > 0}
         aria-controls={`${id}-list`}
@@ -87,7 +89,7 @@ export function PlaceInput({ label, value, onChange, near, currentLocation }: Pr
             <li key={`${p.name}-${i}`}>
               <button type="button" role="option" aria-selected={i === active} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(p)}>
                 {p.name.length > 90 ? `${p.name.slice(0, 90)}...` : p.name}
-                {p.source === "device" && <span className="src"> (from this device)</span>}
+                {p.source === "device" && <span className="src"> {t("plan.from_device")}</span>}
               </button>
             </li>
           ))}

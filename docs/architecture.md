@@ -110,12 +110,34 @@ alerts and devices always live in the SQL database.
 * `advisor.py`: picks the cleanest route, scans departures from -60 to +180 min in 15 min steps, and adds a
   suggestion only when it saves 12% or more.
 
+### Insights (`app/insights.py`)
+
+* Dose: PM2.5 equivalent of the AQI x breathing rate (18 m³ a day for an adult) x hours.
+* Cigarettes: dose / 396 µg (22 µg/m³ x 18 m³, Berkeley Earth's equivalence).
+* Daily budget: 270 µg (WHO 24-hour guideline of 15 µg/m³ x 18 m³). Today's figure combines tracked
+  location points, the current estimate for untracked past hours and the forecast until midnight.
+* Window advice: the cleanest two consecutive waking hours (6 am to 11 pm) in the next 24. Below AQI 100
+  it says open, up to 150 it says air out briefly, above that keep closed. Purifier advice uses the
+  dirtiest three-hour stretch above AQI 150.
+* Explanations: occlusion attribution on the GRU. Each input group is replaced with its training mean,
+  the model is re-run (one batch of 8), and the change in the next-6-hour median is the factor's effect.
+  Cached per station per forecast hour.
+
+### Languages (`app/i18n.py`, `frontend/src/lib/i18n.tsx`)
+
+Server messages live in one table with English, Hindi and Kannada for every key (a test fails if one is
+missing). Times are written the way people say them ("दोपहर 3 बजे", "ಮಧ್ಯಾಹ್ನ 3"). The frontend
+dictionaries are typed against the English one, so the build fails if a translation is missing.
+
 ### Alerts (`app/notify`)
 
 * Location rule: latest ping within 2 hours, current or next-3-hour AQI above the user's threshold.
 * Trip rule: a saved trip departs within 3 hours (repeating trips resolve to the next matching weekday),
   and the best option still crosses the threshold or a better route or time exists.
 * Cooldown 3 hours per place, 1 per trip per day. Quiet hours skip the push but keep the alert.
+* Morning brief: at the user's chosen hour (default 7 am IST), today's AQI range, window and purifier
+  advice and the day's cigarette equivalent for their latest location or home.
+* All alert text is generated in the user's language.
 * FCM tokens that come back unregistered are deleted.
 
 ### Frontend (`frontend/`)

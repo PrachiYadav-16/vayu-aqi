@@ -3,6 +3,7 @@ import "leaflet/dist/leaflet.css";
 import { useEffect, useRef } from "react";
 import { api } from "../lib/api";
 import { catFor } from "../lib/aqi";
+import { useT, type Key } from "../lib/i18n";
 import type { RouteOption, StationRow } from "../lib/types";
 
 interface Grid {
@@ -56,6 +57,7 @@ function gridImage(g: Grid): string {
 }
 
 export function MapView({ center, zoom = 12, stations, you, surfaceHour, routes, selectedRoute, onPick, onStation, fitTo }: Props) {
+  const { t } = useT();
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const layers = useRef<{ stations?: L.LayerGroup; you?: L.Marker; surface?: L.ImageOverlay; routes?: L.LayerGroup }>({});
@@ -99,13 +101,13 @@ export function MapView({ center, zoom = 12, stations, you, surfaceHour, routes,
         iconAnchor: [17, 12],
       });
       const mk = L.marker([s.lat, s.lon], { icon, title: `${s.name}: AQI ${s.aqi}`, keyboard: true });
-      mk.bindPopup(`<b>${s.name}</b><br>${s.city} monitoring station<br>AQI ${s.aqi}, ${cat.label}`);
+      mk.bindPopup(`<b>${s.name}</b><br>${t("map.station_popup", { city: s.city })}<br>AQI ${s.aqi}, ${t(`cat.${cat.key}` as Key)}`);
       if (onStation) mk.on("click", () => onStation(s));
       g.addLayer(mk);
     }
     g.addTo(m);
     layers.current.stations = g;
-  }, [stations, onStation]);
+  }, [stations, onStation, t]);
 
   useEffect(() => {
     const m = map.current;
@@ -161,10 +163,10 @@ export function MapView({ center, zoom = 12, stations, you, surfaceHour, routes,
     for (const r of ordered) {
       const selected = r.id === selectedRoute;
       if (!selected) {
-        g.addLayer(L.polyline(r.geometry, { color: "#6f7b79", weight: 5, opacity: 0.55 }));
+        g.addLayer(L.polyline(r.geometry, { color: "#7b858e", weight: 5, opacity: 0.55 }));
         continue;
       }
-      g.addLayer(L.polyline(r.geometry, { color: "#15211F", weight: 10, opacity: 0.9 }));
+      g.addLayer(L.polyline(r.geometry, { color: "#1f262d", weight: 10, opacity: 0.9 }));
       for (let i = 0; i < r.strip.length - 1; i++) {
         const a = r.strip[i];
         const b = r.strip[i + 1];
@@ -181,5 +183,5 @@ export function MapView({ center, zoom = 12, stations, you, surfaceHour, routes,
     }
   }, [fitTo]);
 
-  return <div ref={el} className="map" aria-label="Air quality map" />;
+  return <div ref={el} className="map" aria-label="Map" />;
 }

@@ -1,4 +1,5 @@
 import { catFor } from "../lib/aqi";
+import { useT } from "../lib/i18n";
 import type { StripPoint } from "../lib/types";
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
  * are hatched so the pattern still reads without colour.
  */
 export function ExposureStrip({ points, totalMin, threshold, big, label }: Props) {
+  const { t } = useT();
   if (!points.length) return null;
   const slices = points.map((p, i) => {
     const next = points[i + 1]?.minute ?? totalMin;
@@ -36,7 +38,7 @@ export function ExposureStrip({ points, totalMin, threshold, big, label }: Props
       </div>
       <div className="strip-axis" aria-hidden="true">
         {marks.map((m, i) => (
-          <span key={i}>{i === 0 ? "Start" : i === marks.length - 1 ? `${m} min` : `${m}`}</span>
+          <span key={i}>{i === 0 ? t("strip.start") : i === marks.length - 1 ? t("route.min", { n: m }) : `${m}`}</span>
         ))}
       </div>
     </div>

@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.aqi.health import SENSITIVITY_GROUPS
+from app.i18n import LANGUAGES
 from app.routing.providers import MODES
 
 
@@ -11,6 +12,14 @@ class RegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=8, max_length=128)
     sensitivity: list[str] = []
+    language: str = "en"
+
+    @field_validator("language")
+    @classmethod
+    def _lang(cls, v):
+        if v not in LANGUAGES:
+            raise ValueError(f"language must be one of {', '.join(LANGUAGES)}")
+        return v
 
     @field_validator("sensitivity")
     @classmethod
@@ -40,6 +49,9 @@ class ProfileOut(BaseModel):
     notify_trip_advisories: bool
     quiet_start_hour: int | None
     quiet_end_hour: int | None
+    language: str
+    notify_daily_brief: bool
+    brief_hour: int
 
 
 class ProfileIn(BaseModel):
@@ -54,6 +66,16 @@ class ProfileIn(BaseModel):
     notify_trip_advisories: bool | None = None
     quiet_start_hour: int | None = Field(default=None, ge=0, le=23)
     quiet_end_hour: int | None = Field(default=None, ge=0, le=23)
+    language: str | None = None
+    notify_daily_brief: bool | None = None
+    brief_hour: int | None = Field(default=None, ge=4, le=12)
+
+    @field_validator("language")
+    @classmethod
+    def _lang(cls, v):
+        if v is not None and v not in LANGUAGES:
+            raise ValueError(f"language must be one of {', '.join(LANGUAGES)}")
+        return v
 
     @field_validator("sensitivity")
     @classmethod

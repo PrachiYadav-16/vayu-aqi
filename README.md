@@ -17,7 +17,7 @@ Infosys internship project by **Prachi Yadav** ([@PrachiYadav-16](https://github
 | 1. Location and AQI data integration | Browser geolocation with an explicit consent switch, ingestion clients for OpenAQ v3, WAQI, OpenWeatherMap and TomTom traffic, fusion into one hourly record per station, health profiles, and a time-series store with SQL and InfluxDB backends |
 | 2. Forecasting model | 2-layer GRU trained with quantile loss for 1 to 24 hour forecasts with 80% intervals, ordinary kriging and IDW for estimates between stations, route exposure estimator, FastAPI prediction service, weekly retraining that only promotes a better model |
 | 3. Route advisory, dashboard, notifications | Trip planner with route alternatives and a departure-time scan, Firebase Cloud Messaging push, React PWA with a Leaflet map, forecast charts and route overlays, exposure history, notification preferences and quiet hours |
-| 4. Integration, testing, docs | 36 automated tests, Locust load test, Docker image, GitHub Actions CI, architecture, API, model evaluation and deployment docs |
+| 4. Integration, testing, docs | 50 automated tests, Locust load test, Docker image, GitHub Actions CI, architecture, API, model evaluation and deployment docs |
 
 ## How the problem is solved
 
@@ -42,15 +42,31 @@ more useful than a plain AQI map:
   set their own.
 * **Privacy by default.** Location is only collected after the user turns it on, is thinned to one point per
   10 minutes, is deleted after 30 days, and is wiped immediately if consent is withdrawn.
+* **Pollution in cigarettes.** Inhaled PM2.5 is converted to a cigarette equivalent (Berkeley Earth: a day
+  at 22 µg/m³ is about one cigarette) and tracked against a daily budget set by the WHO 24-hour guideline
+  (15 µg/m³). "Today equals 3 cigarettes" lands in a way "AQI 160" does not.
+* **The model explains itself.** For the station nearest to you, Vayu switches off one group of model inputs
+  at a time (traffic, wind, weather, time of day, season, city-wide pollution, recent trend) and measures
+  how much the next 6 hours of forecast move. The top factors appear as plain sentences such as "Calm wind
+  is letting pollution build up, adds about 18 AQI".
+* **Advice for the home.** The cleanest two-hour stretch of the day becomes "open windows 3 pm to 5 pm", the
+  worst three hours become "run the purifier 9 pm to 12 am", and both arrive in a morning air brief.
+* **Your language.** The interface, every alert, the morning brief, trip suggestions and model explanations
+  are available in English, Hindi and Kannada. The choice is stored on the account, so push notifications
+  arrive in the same language.
 * **Works without keys.** With no API keys, a simulator generates realistic station data (traffic peaks,
   winter build-up, monsoon washout, Delhi's crop-burning season) and routes fall back to OSRM or approximate
   corridors. Add keys and the same pipeline switches to live data.
 
 ## Screens
 
-| Plan a trip | Exposure history | Phone |
+| Plan a trip | Hindi | Kannada |
 |---|---|---|
-| ![Plan](docs/screenshots/plan.jpg) | ![Exposure](docs/screenshots/exposure.jpg) | ![Mobile](docs/screenshots/mobile-now.jpg) |
+| ![Plan](docs/screenshots/plan.jpg) | ![Hindi](docs/screenshots/now-hindi.jpg) | ![Kannada](docs/screenshots/plan-kannada.jpg) |
+
+| Alerts and morning brief | Sign in | Phone |
+|---|---|---|
+| ![Alerts](docs/screenshots/alerts.jpg) | ![Sign in](docs/screenshots/login.jpg) | ![Phone](docs/screenshots/mobile-hindi.jpg) |
 
 Map tiles are missing in these captures because they were taken on a machine without internet access.
 
@@ -58,7 +74,7 @@ Map tiles are missing in these captures because they were taken on a machine wit
 
 * **Backend:** Python 3.11+, FastAPI, SQLAlchemy 2 (SQLite by default, Postgres supported), InfluxDB 2 (optional), APScheduler, firebase-admin
 * **Model:** PyTorch for training, NumPy for serving (the API does not need torch installed)
-* **Frontend:** React 18, TypeScript, Vite, Leaflet, hand-built SVG charts, service worker for offline use and push
+* **Frontend:** React 18, TypeScript, Vite, Leaflet, hand-built SVG charts, service worker for offline use and push, typed translation dictionaries (a missing Hindi or Kannada string fails the build)
 * **Ops:** Docker, docker compose, GitHub Actions, Locust
 
 ## Run it locally
@@ -147,8 +163,9 @@ real data; rerun the report after training on live readings.
 
 ## Future scope
 
-Weather forecast inputs, satellite aerosol data for areas without stations, indoor air purifier
-integration, and a regional language interface (Kannada, Hindi).
+Weather forecast inputs, satellite aerosol data for areas without stations, smart purifier
+integration (switch on automatically from the forecast), more languages (Tamil, Telugu, Marathi) and
+voice alerts for people who do not read.
 
 ## License
 

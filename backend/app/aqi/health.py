@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from app.aqi.naqi import category_for
+from app.i18n import cat_label, t
 
 SENSITIVITY_GROUPS = {
     "asthma": ("Asthma", 100),
@@ -30,35 +31,32 @@ class Advice:
     actions: list[str]
 
 
-def advice_for(aqi: float | None, sensitivity: list[str] | None, custom: int | None = None) -> Advice:
+def advice_for(aqi: float | None, sensitivity: list[str] | None, custom: int | None = None,
+               lang: str = "en") -> Advice:
     if aqi is None:
-        return Advice("ok", "No reading for this place yet.", [])
+        return Advice("ok", t(lang, "adv.no_reading"), [])
     threshold = personal_threshold(sensitivity, custom)
-    cat = category_for(aqi)
+    cat = cat_label(lang, category_for(aqi).key)
     sens = set(sensitivity or [])
     lung = bool(sens & {"asthma", "copd"})
 
     if aqi <= min(100, threshold * 0.6):
-        return Advice("ok", f"{cat.label} air. Normal outdoor plans are fine.", [])
+        return Advice("ok", t(lang, "adv.ok", cat=cat), [])
 
     if aqi < threshold:
-        actions = ["Keep long outdoor workouts to the cleaner part of the day."]
+        actions = [t(lang, "act.workout_clean")]
         if lung:
-            actions.append("Carry your reliever inhaler.")
-        return Advice("caution", f"{cat.label} air, below your alert level of {threshold}.", actions)
+            actions.append(t(lang, "act.inhaler"))
+        return Advice("caution", t(lang, "adv.below", cat=cat, t=threshold), actions)
 
-    actions: list[str] = []
     if aqi > 300:
-        actions.append("Stay indoors with windows closed if you can.")
-        actions.append("Wear an N95 or FFP2 mask if you must go out.")
-        actions.append("Run an air purifier in the room you spend most time in.")
+        actions = [t(lang, "act.stay_indoors"), t(lang, "act.n95_must"), t(lang, "act.purifier_room")]
     else:
-        actions.append("Shorten time outdoors and skip strenuous activity.")
-        actions.append("A well-fitted N95 mask helps on the road.")
+        actions = [t(lang, "act.shorten"), t(lang, "act.n95_road")]
     if lung:
-        actions.append("Keep your reliever inhaler with you and follow your action plan.")
+        actions.append(t(lang, "act.inhaler_plan"))
     if "heart" in sens:
-        actions.append("Watch for chest pain, palpitations or unusual tiredness.")
+        actions.append(t(lang, "act.heart"))
     if "children" in sens:
-        actions.append("Move children's outdoor play indoors.")
-    return Advice("avoid", f"{cat.label} air, above your alert level of {threshold}.", actions)
+        actions.append(t(lang, "act.children"))
+    return Advice("avoid", t(lang, "adv.above", cat=cat, t=threshold), actions)

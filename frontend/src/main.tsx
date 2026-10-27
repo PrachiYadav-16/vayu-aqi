@@ -2,6 +2,7 @@ import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./components/Shell";
+import { I18nProvider } from "./lib/i18n";
 import { registerServiceWorker } from "./lib/push";
 import { SessionProvider, useSession } from "./lib/session";
 import { AlertsPage } from "./pages/Alerts";
@@ -15,7 +16,7 @@ import "./styles.css";
 
 function RequireUser({ children }: { children: ReactNode }) {
   const { user, loading } = useSession();
-  if (loading) return <p className="muted" style={{ padding: 24 }}>Loading...</p>;
+  if (loading) return <p className="muted" style={{ padding: 24 }} role="status">...</p>;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
@@ -29,6 +30,7 @@ function GuestOnly({ children }: { children: ReactNode }) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    <I18nProvider>
     <SessionProvider>
       <BrowserRouter>
         <Routes>
@@ -46,6 +48,7 @@ createRoot(document.getElementById("root")!).render(
         </Routes>
       </BrowserRouter>
     </SessionProvider>
+    </I18nProvider>
   </StrictMode>
 );
 

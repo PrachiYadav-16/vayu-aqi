@@ -7,7 +7,7 @@ Base URL `http://localhost:8000`. Interactive docs with request/response schemas
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| POST | `/api/auth/register` | `{email, name, password, sensitivity[]}` | `{access_token}` |
+| POST | `/api/auth/register` | `{email, name, password, sensitivity[], language}` | `{access_token}` |
 | POST | `/api/auth/token` | form: `username`, `password` | `{access_token}` |
 
 ## Air quality (public)
@@ -41,9 +41,9 @@ Point forecast response:
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/me` | Profile with computed `threshold` |
-| PATCH | `/api/me` | Any of `name, sensitivity, custom_threshold, clear_custom_threshold, home_lat, home_lon, location_consent, notify_push, notify_trip_advisories, quiet_start_hour, quiet_end_hour`. Setting `location_consent` to false deletes location history |
+| PATCH | `/api/me` | Any of `name, language (en, hi, kn), notify_daily_brief, brief_hour, sensitivity, custom_threshold, clear_custom_threshold, home_lat, home_lon, location_consent, notify_push, notify_trip_advisories, quiet_start_hour, quiet_end_hour`. Setting `location_consent` to false deletes location history |
 | GET | `/api/me/sensitivity-groups` | Groups and their thresholds |
-| GET | `/api/me/here?lat=&lon=` | Point forecast plus personal advice: level, actions, next breach, cleanest hour |
+| GET | `/api/me/here?lat=&lon=` | Point forecast plus personal advice (level, actions, next breach, cleanest hour), `budget` (today's dose against the WHO limit and its cigarette equivalent), `home` (window and purifier advice), `explain` (trend and the factors moving it). Text is in the user's language |
 | POST | `/api/me/location` | `{lat, lon, accuracy_m}`; ignored without consent; at most one point per 10 min |
 | DELETE | `/api/me/location` | Delete location history |
 | GET | `/api/me/exposure?days=14` | Daily average/peak AQI and minutes above threshold |
@@ -85,6 +85,7 @@ Assessment response (trimmed):
 | POST | `/api/alerts/{id}/read` | |
 | POST | `/api/alerts/read-all` | |
 | POST | `/api/alerts/check-now` | Run this user's alert rules immediately |
+| POST | `/api/alerts/brief-now` | Send today's morning air brief now |
 
 ## Ops
 

@@ -19,7 +19,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.aqi.health import advice_for, personal_threshold
-from app.aqi.naqi import category_for
+from app import insights
+from app.i18n import fmt_time, t
 from app.config import get_settings
 from app.db import SessionLocal
 from app.forecast.service import get_forecast_service
@@ -80,26 +81,31 @@ def check_location(db: Session, user: User, now: datetime) -> Alert | None:
     if _recent_alert(db, user.id, "location_breach", subject, get_settings().alert_cooldown_minutes):
         return None
     now_over = pf["current_aqi"] > threshold
-    adv = advice_for(peak, user.sensitivity, user.custom_threshold)
-    cat = category_for(peak)
+    lang = user.language or "en"
+    adv = advice_for(peak, user.sensitivity, user.custom_threshold, lang)
     if now_over:
-        title = f"AQI {pf['current_aqi']} where you are"
-        body = f"{cat.label} air, above your alert level of {threshold}. {adv.actions[0] if adv.actions else ''}"
+        title = t(lang, "alert.loc_now_title", aqi=pf["current_aqi"])
+        body = f"{adv.headline} {adv.actions[0] if adv.actions else ''}"
     else:
         first = next(h for h in next3 if h["aqi"] > threshold)
-        at = datetime.fromisoformat(first["ts"]).astimezone(IST).strftime("%-I %p").lower()
-        title = f"AQI expected to reach {first['aqi']} by {at}"
-        body = f"Your area is forecast to cross your alert level of {threshold}. Plan outdoor time before then."
+        title = t(lang, "alert.loc_soon_title", aqi=first["aqi"], time=fmt_time(lang, datetime.fromisoformat(first["ts"])))
+        body = t(lang, "alert.loc_soon_body", t=threshold)
     severity = "critical" if peak > 300 else "warning"
     return create_alert(db, user, "location_breach", severity, title, body.strip(),
                         {"subject": subject, "lat": ping.lat, "lon": ping.lon, "peak_aqi": peak})
 
 
+def _utc(ts: datetime) -> datetime:
+    # SQLite hands back naive datetimes; everything is stored in UTC.
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
 def _next_departure(trip: Trip, now: datetime) -> datetime | None:
+    depart = _utc(trip.depart_at)
     if not trip.repeat_weekdays:
-        return trip.depart_at if trip.depart_at >= now - timedelta(minutes=10) else None
+        return depart if depart >= now - timedelta(minutes=10) else None
     local_now = now.astimezone(IST)
-    dep_local = trip.depart_at.astimezone(IST)
+    dep_local = depart.astimezone(IST)
     for add in range(0, 8):
         day = local_now.date() + timedelta(days=add)
         if day.weekday() in trip.repeat_weekdays:
@@ -115,8 +121,9 @@ def check_trip(db: Session, user: User, trip: Trip, now: datetime) -> Alert | No
     dep = _next_departure(trip, now)
     if dep is None or dep - now > timedelta(hours=3):
         return None
+    lang = user.language or "en"
     result = assess((trip.origin_lat, trip.origin_lon), (trip.dest_lat, trip.dest_lon), dep, trip.mode,
-                    user.sensitivity, user.custom_threshold)
+                    user.sensitivity, user.custom_threshold, lang)
     trip.last_assessment = {k: v for k, v in result.items() if k != "routes"} | {
         "routes": [{k: v for k, v in r.items() if k not in ("geometry", "strip")} for r in result["routes"]]
     }
@@ -126,13 +133,56 @@ def check_trip(db: Session, user: User, trip: Trip, now: datetime) -> Alert | No
     if result["verdict"] == "go" and not result["suggestions"]:
         return None
     best = next(r for r in result["routes"] if r["id"] == result["recommended_route_id"])
-    when = dep.astimezone(IST).strftime("%-I:%M %p").lower()
-    name = trip.label or f"{trip.origin_name.split(',')[0]} to {trip.dest_name.split(',')[0]}"
-    title = f"{name}, {when}: peak AQI {best['peak_aqi']}"
+    when = fmt_time(lang, dep, minutes=True)
+    name = trip.label or t(lang, "trip.default_name", a=trip.origin_name.split(",")[0], b=trip.dest_name.split(",")[0])
+    title = t(lang, "alert.trip_title", name=name, time=when, aqi=best["peak_aqi"])
     body = result["suggestions"][0]["text"] if result["suggestions"] else result["headline"]
     severity = "critical" if result["verdict"] == "reconsider" else "warning" if result["verdict"] == "caution" else "info"
     return create_alert(db, user, "trip_advisory", severity, title, body,
                         {"subject": subject, "trip_id": trip.id, "depart_at": dep.isoformat()})
+
+
+def _brief_place(db: Session, user: User, now: datetime) -> tuple[float, float] | None:
+    if user.location_consent:
+        ping = db.scalars(select(LocationPing).where(LocationPing.user_id == user.id,
+                                                     LocationPing.ts >= now - timedelta(hours=18))
+                          .order_by(LocationPing.ts.desc()).limit(1)).first()
+        if ping:
+            return ping.lat, ping.lon
+    if user.home_lat is not None and user.home_lon is not None:
+        return user.home_lat, user.home_lon
+    return None
+
+
+def check_daily_brief(db: Session, user: User, now: datetime, force: bool = False) -> Alert | None:
+    """Morning summary: today's AQI range, when to open windows, when to run the
+    purifier, and the day's cigarette equivalent. Sent once per day at brief_hour."""
+    if not user.notify_daily_brief and not force:
+        return None
+    local = now.astimezone(IST)
+    if not force and local.hour != (user.brief_hour or 7):
+        return None
+    subject = f"brief:{local.date().isoformat()}"
+    if not force and _recent_alert(db, user.id, "daily_brief", subject, 20 * 60):
+        return None
+    place = _brief_place(db, user, now)
+    if place is None:
+        return None
+    pf = get_forecast_service().point_forecast(*place)
+    if pf is None or pf["coverage"] == "outside":
+        return None
+    lang = user.language or "en"
+    day = pf["hours"][:16]
+    lo, hi = min(h["aqi"] for h in day), max(h["aqi"] for h in day)
+    home = insights.window_advice(pf["hours"], lang)
+    budget = insights.day_budget(now, [], pf["current_aqi"], pf["hours"])
+    body = " ".join(filter(None, [home["windows"]["text"] if home else "",
+                                  home["purifier"]["text"] if home and home["purifier"]["action"] == "run" else "",
+                                  t(lang, "brief.cigs", cig=round(budget["cigarettes_projected"], 1))]))
+    threshold = personal_threshold(user.sensitivity, user.custom_threshold)
+    severity = "warning" if hi > threshold else "info"
+    return create_alert(db, user, "daily_brief", severity, t(lang, "brief.title", lo=lo, hi=hi), body,
+                        {"subject": subject, "home": home, "cigarettes": budget["cigarettes_projected"]})
 
 
 def run_checks(now: datetime | None = None) -> dict:
@@ -143,6 +193,8 @@ def run_checks(now: datetime | None = None) -> dict:
         for u in users:
             try:
                 if check_location(db, u, now):
+                    created += 1
+                if check_daily_brief(db, u, now):
                     created += 1
                 for trip in u.trips:
                     if check_trip(db, u, trip, now):

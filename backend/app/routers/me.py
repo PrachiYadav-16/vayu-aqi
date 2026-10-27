@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.aqi.health import SENSITIVITY_GROUPS, advice_for, personal_threshold
 from app.db import get_db
+from app import insights
+from app.aqi.naqi import pm25_for_aqi
 from app.forecast.service import get_forecast_service
 from app.models import DeviceToken, LocationPing, User
 from app.schemas import DeviceIn, PingIn, ProfileIn, ProfileOut
@@ -23,6 +25,7 @@ def _profile(u: User) -> ProfileOut:
         home_lat=u.home_lat, home_lon=u.home_lon, location_consent=u.location_consent,
         notify_push=u.notify_push, notify_trip_advisories=u.notify_trip_advisories,
         quiet_start_hour=u.quiet_start_hour, quiet_end_hour=u.quiet_end_hour,
+        language=u.language or "en", notify_daily_brief=bool(u.notify_daily_brief), brief_hour=u.brief_hour or 7,
     )
 
 
@@ -50,22 +53,46 @@ def groups():
     return [{"key": k, "label": v[0], "threshold": v[1]} for k, v in SENSITIVITY_GROUPS.items()]
 
 
-@router.get("/here")
-def here(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180),
-         user: User = Depends(current_user)):
-    """Point forecast plus advice for this user's health profile."""
-    pf = get_forecast_service().point_forecast(lat, lon)
+def _utc(ts: datetime) -> datetime:
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def today_pings(db: Session, user_id: int, now: datetime) -> list[tuple[datetime, int]]:
+    midnight = now.astimezone(IST).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    rows = db.scalars(select(LocationPing).where(LocationPing.user_id == user_id, LocationPing.ts >= midnight,
+                                                 LocationPing.aqi.is_not(None)).order_by(LocationPing.ts)).all()
+    return [(_utc(r.ts), r.aqi) for r in rows]
+
+
+def personal_here(db: Session, user: User, lat: float, lon: float) -> dict | None:
+    """Point forecast plus everything personal: advice, budget, windows, explanation."""
+    svc = get_forecast_service()
+    pf = svc.point_forecast(lat, lon)
     if pf is None:
         return None
+    lang = user.language or "en"
     threshold = personal_threshold(user.sensitivity, user.custom_threshold)
-    now_adv = advice_for(pf["current_aqi"], user.sensitivity, user.custom_threshold)
+    now_adv = advice_for(pf["current_aqi"], user.sensitivity, user.custom_threshold, lang)
     upcoming = [h for h in pf["hours"][:12] if h["aqi"] > threshold]
     cleanest = min(pf["hours"][:12], key=lambda h: h["aqi"])
     pf["advice"] = {"level": now_adv.level, "headline": now_adv.headline, "actions": now_adv.actions,
                     "threshold": threshold,
                     "next_breach": upcoming[0] if upcoming else None,
                     "cleanest_hour": cleanest}
+    now = datetime.now(timezone.utc)
+    pings = today_pings(db, user.id, now) if user.location_consent else []
+    pf["budget"] = insights.day_budget(now, pings, pf["current_aqi"], pf["hours"])
+    pf["home"] = insights.window_advice(pf["hours"], lang)
+    idx = svc.nearest_station(lat, lon)
+    effects = svc.explain_station(idx) if idx is not None else None
+    pf["explain"] = insights.explain(effects, pf["current_aqi"], pf["hours"], lang)
     return pf
+
+
+@router.get("/here")
+def here(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180),
+         user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return personal_here(db, user, lat, lon)
 
 
 @router.post("/location", status_code=201)
@@ -102,7 +129,8 @@ def exposure(days: int = Query(14, ge=1, le=30), user: User = Depends(current_us
                                                   LocationPing.aqi.is_not(None))
                        .order_by(LocationPing.ts)).all()
     threshold = personal_threshold(user.sensitivity, user.custom_threshold)
-    per_day: dict[str, dict] = defaultdict(lambda: {"weighted": 0.0, "minutes": 0.0, "above": 0.0, "peak": 0})
+    per_day: dict[str, dict] = defaultdict(lambda: {"weighted": 0.0, "minutes": 0.0, "above": 0.0, "peak": 0,
+                                                    "dose": 0.0})
     for i, p in enumerate(pings):
         ts = p.ts if p.ts.tzinfo else p.ts.replace(tzinfo=timezone.utc)
         nxt = pings[i + 1].ts if i + 1 < len(pings) else ts + timedelta(minutes=30)
@@ -111,6 +139,7 @@ def exposure(days: int = Query(14, ge=1, le=30), user: User = Depends(current_us
         d = per_day[ts.astimezone(IST).date().isoformat()]
         d["weighted"] += p.aqi * mins
         d["minutes"] += mins
+        d["dose"] += pm25_for_aqi(p.aqi) * insights.BREATHING_M3_PER_H * mins / 60
         d["peak"] = max(d["peak"], p.aqi)
         if p.aqi > threshold:
             d["above"] += mins
@@ -119,8 +148,11 @@ def exposure(days: int = Query(14, ge=1, le=30), user: User = Depends(current_us
         d = per_day[day]
         out.append({"date": day, "avg_aqi": round(d["weighted"] / d["minutes"]) if d["minutes"] else None,
                     "peak_aqi": d["peak"], "tracked_minutes": round(d["minutes"]),
-                    "minutes_above_threshold": round(d["above"])})
-    return {"threshold": threshold, "days": out, "pings": len(pings)}
+                    "minutes_above_threshold": round(d["above"]),
+                    "dose_ug": round(d["dose"], 1), "cigarettes": insights.cigarettes(d["dose"]),
+                    "budget_pct": round(100 * d["dose"] / insights.WHO_DAILY_BUDGET_UG)})
+    return {"threshold": threshold, "days": out, "pings": len(pings),
+            "budget_ug": insights.WHO_DAILY_BUDGET_UG, "ug_per_cigarette": insights.UG_PER_CIGARETTE}
 
 
 @router.post("/devices", status_code=201)
