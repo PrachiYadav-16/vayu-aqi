@@ -358,7 +358,7 @@ button, input, select { font: inherit; color: inherit; }
 .groups { display: grid; gap: 8px; }
 @media (max-width: 960px) {
   .auth { grid-template-columns: 1fr; }
-  .auth-side { padding: 22px 18px 56px; }
+  .auth-side { padding: 22px 18px 124px; }
   .auth-scale { display: none; }
   .auth-form { padding: 16px 12px 40px; }
   .auth-form .card { padding: 20px; }
