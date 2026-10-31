@@ -10,13 +10,16 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from app.config import get_settings
 
 log = logging.getLogger(__name__)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 @dataclass
@@ -124,15 +127,16 @@ class OSRM:
         url += f"/{o[1]},{o[0]};{d[1]},{d[0]}"
         try:
             data = httpx.get(url, params={"alternatives": 3, "overview": "full", "geometries": "polyline",
-                                          "steps": "false"}, timeout=12,
+                                          "steps": "true"}, timeout=12,
                              headers={"User-Agent": "vayu-aqi/1.0"}).json()
             if data.get("code") != "Ok":
                 return None
             out = []
-            for r in data["routes"]:
+            for i, r in enumerate(data["routes"]):
                 names = [leg.get("summary") for leg in r.get("legs", []) if leg.get("summary")]
+                label = names[0] if names else f"Route {i + 1}"
                 out.append(Route(decode_polyline(r["geometry"]), r["distance"], r["duration"],
-                                 names[0] if names else "Route", "osrm"))
+                                 label, "osrm"))
             return out
         except Exception as exc:
             log.info("OSRM unavailable: %s", exc)
@@ -163,12 +167,37 @@ class OfflineApprox:
         return out
 
 
+def congestion_factor(depart_epoch: int | None) -> float:
+    """OSRM gives free-flow road times. Indian city traffic is far slower, and how
+    much slower depends on the hour, so scale by the same diurnal traffic curve the
+    pollution model uses (about 1.45x at night, about 2.2x at the evening peak)."""
+    import numpy as np
+
+    from app.ingest.simulator import _diurnal_traffic
+
+    if depart_epoch is None:
+        depart_epoch = int(time.time())
+    local = datetime.fromtimestamp(depart_epoch, tz=IST)
+    hour = local.hour + local.minute / 60
+    traffic = float(_diurnal_traffic(np.array([hour]), np.array([local.weekday()]))[0])
+    return 1.25 + 1.1 * traffic
+
+
 def find_routes(origin, dest, mode_key: str, depart_epoch: int | None = None) -> list[Route]:
     mode = MODES.get(mode_key, MODES["driving"])
     for provider in (GoogleDirections(), OSRM()):
         routes = provider.routes(origin, dest, mode, depart_epoch)
         if routes:
+            # Google already includes live traffic; OSRM car times are free-flow.
+            jam = 1.0
+            if isinstance(provider, OSRM) and mode.profile == "car":
+                jam = congestion_factor(depart_epoch)
             for r in routes:
-                r.duration_s *= mode.duration_factor
+                r.duration_s *= mode.duration_factor * jam
             return routes[:3]
-    return OfflineApprox().routes(origin, dest, mode)
+    routes = OfflineApprox().routes(origin, dest, mode)
+    if mode.profile == "car":
+        jam = congestion_factor(depart_epoch) / 1.6  # offline speeds already assume average traffic
+        for r in routes:
+            r.duration_s *= jam
+    return routes

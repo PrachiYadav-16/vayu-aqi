@@ -89,3 +89,14 @@ def test_to_grid_accepts_etc_utc_end():
     end = datetime(2026, 1, 3, 11, tzinfo=ZoneInfo("Etc/UTC"))
     X, sids, times = to_grid(df, {"s1": "X"}, end=pd.Timestamp(end), hours=48)
     assert X.shape[:2] == (1, 48) and str(times.tz) == "UTC"
+
+
+def test_congestion_factor_peaks_in_rush_hour():
+    from datetime import datetime, timedelta, timezone
+
+    from app.routing.providers import congestion_factor
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    night = congestion_factor(int(datetime(2026, 11, 2, 3, 0, tzinfo=ist).timestamp()))
+    peak = congestion_factor(int(datetime(2026, 11, 2, 19, 0, tzinfo=ist).timestamp()))
+    assert 1.3 < night < 1.6 and 2.0 < peak < 2.4

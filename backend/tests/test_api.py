@@ -178,3 +178,13 @@ def test_timestamps_carry_utc_offset(client, auth):
     client.post("/api/alerts/brief-now", headers=auth)
     alerts = client.get("/api/alerts", headers=auth).json()["alerts"]
     assert alerts and alerts[0]["created_at"].endswith(("+00:00", "Z"))
+
+
+def test_mask_advice_does_not_crash(client, auth):
+    """Regression: a variable named `t` in the departure scan shadowed the translator."""
+    client.patch("/api/me", headers=auth, json={"custom_threshold": 50})
+    for mode in ("cycling", "walking", "two_wheeler"):
+        r = client.post("/api/trips/assess", headers=auth, json=_trip_body(mode=mode))
+        assert r.status_code == 200, r.text
+        assert any(s["type"] == "mask" for s in r.json()["suggestions"])
+    client.patch("/api/me", headers=auth, json={"clear_custom_threshold": True})

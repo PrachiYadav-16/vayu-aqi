@@ -62,11 +62,11 @@ def assess(origin: tuple[float, float], dest: tuple[float, float], depart: datet
     _, best_sr, best_s = cleanest
     scan = []
     for delta in range(SHIFT_EARLIEST_MIN, SHIFT_LATEST_MIN + 1, SHIFT_STEP_MIN):
-        t = depart + timedelta(minutes=delta)
-        if t < now - timedelta(minutes=5):
+        when = depart + timedelta(minutes=delta)
+        if when < now - timedelta(minutes=5):
             continue
-        s = score(best_sr, t, mode, threshold)
-        scan.append({"shift_min": delta, "depart_at": t.isoformat(), "dose_ug": round(s["dose_ug"], 1),
+        s = score(best_sr, when, mode, threshold)
+        scan.append({"shift_min": delta, "depart_at": when.isoformat(), "dose_ug": round(s["dose_ug"], 1),
                      "avg_aqi": round(s["avg_aqi"]), "peak_aqi": round(s["peak_aqi"])})
     best_time = min(scan, key=lambda x: x["dose_ug"]) if scan else None
 
