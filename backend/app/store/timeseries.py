@@ -11,7 +11,7 @@ Two interchangeable backends:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable
 
 import pandas as pd
@@ -86,9 +86,11 @@ class SqlSeriesStore(SeriesStore):
     def latest_ts(self) -> datetime | None:
         with SessionLocal() as db:
             ts = db.scalar(select(Reading.ts).order_by(Reading.ts.desc()).limit(1))
-        if ts is not None and ts.tzinfo is None:
-            ts = pd.Timestamp(ts, tz="UTC").to_pydatetime()
-        return ts
+        if ts is None:
+            return None
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
 
 
 class InfluxSeriesStore(SeriesStore):  # pragma: no cover - needs a running InfluxDB

@@ -71,3 +71,21 @@ def test_polyline_decode():
     pts = decode_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@")
     assert pts[0] == pytest.approx((38.5, -120.2))
     assert pts[-1] == pytest.approx((43.252, -126.453))
+
+
+def test_to_grid_accepts_etc_utc_end():
+    # Neon/Postgres can return timestamps in Etc/UTC; pandas must not reject them.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    import pandas as pd
+
+    from app.forecast.features import to_grid
+
+    ts = pd.date_range("2026-01-01", periods=60, freq="h", tz="UTC")
+    df = pd.DataFrame({"station_id": "s1", "ts": ts, "aqi": 80.0, "pm25": 30.0, "pm10": 60.0, "no2": 20.0,
+                       "o3": 10.0, "co": 0.5, "temp": 25.0, "humidity": 50.0, "wind_speed": 2.0,
+                       "wind_dir": 90.0, "traffic": 0.4})
+    end = datetime(2026, 1, 3, 11, tzinfo=ZoneInfo("Etc/UTC"))
+    X, sids, times = to_grid(df, {"s1": "X"}, end=pd.Timestamp(end), hours=48)
+    assert X.shape[:2] == (1, 48) and str(times.tz) == "UTC"

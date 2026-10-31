@@ -36,9 +36,12 @@ class UTCDateTime(TypeDecorator):
         return value
 
     def process_result_value(self, value, dialect):
-        if value is not None and value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value
+        if value is None:
+            return value
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        # Postgres returns the session time zone (e.g. Etc/UTC on Neon); normalise it.
+        return value.astimezone(timezone.utc)
 
 
 class User(Base):

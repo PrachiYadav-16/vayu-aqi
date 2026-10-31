@@ -34,6 +34,9 @@ def to_grid(df: pd.DataFrame, station_city: dict[str, str], end: pd.Timestamp | 
     df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.floor("h")
     if end is None:
         end = df["ts"].max()
+    # Normalise to plain UTC: Postgres may hand back Etc/UTC, which pandas treats as different.
+    end = pd.Timestamp(end)
+    end = end.tz_localize("UTC") if end.tzinfo is None else end.tz_convert("UTC")
     start = df["ts"].min() if hours is None else end - pd.Timedelta(hours=hours - 1)
     times = pd.date_range(start, end, freq="h", tz="UTC")
     stations = sorted(df["station_id"].unique())
