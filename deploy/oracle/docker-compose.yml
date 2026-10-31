@@ -1,0 +1,52 @@
+# Production stack for one VM (tested target: Oracle Cloud Always Free, Ampere A1, Ubuntu).
+#   app   - FastAPI + the built PWA + background scheduler (one process, so jobs never run twice)
+#   caddy - HTTPS with an automatic Let's Encrypt certificate, reverse proxy to app
+#
+# Started by setup.sh. Manual use, from this folder:
+#   docker compose up -d --build
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+        VITE_FIREBASE_MESSAGING_SENDER_ID: ${VITE_FIREBASE_MESSAGING_SENDER_ID:-}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
+        VITE_FIREBASE_VAPID_KEY: ${VITE_FIREBASE_VAPID_KEY:-}
+    env_file:
+      - ../../backend/.env
+    environment:
+      VAYU_DATABASE_URL: sqlite:////data/vayu.db
+      VAYU_SEED_DEMO: ${VAYU_SEED_DEMO:-true}
+    volumes:
+      - vayu-data:/data
+      # Optional Firebase service account, see docs/deployment.md
+      - ../../secrets:/secrets:ro
+    expose:
+      - "8000"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      VAYU_DOMAIN: ${VAYU_DOMAIN:?set VAYU_DOMAIN in deploy/oracle/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+volumes:
+  vayu-data:
+  caddy-data:
+  caddy-config:

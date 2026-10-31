@@ -5,6 +5,7 @@
 """
 
 import argparse
+import os
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -70,6 +71,8 @@ def main():
     ap.add_argument("--no-demo", action="store_true")
     ap.add_argument("--days", type=int, default=30)
     args = ap.parse_args()
+    if os.environ.get("VAYU_SEED_DEMO", "true").lower() in ("0", "false", "no"):
+        args.no_demo = True
     init_db()
     ensure_stations()
     if any_pollutant_source():

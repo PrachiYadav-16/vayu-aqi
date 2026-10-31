@@ -17,7 +17,8 @@ COPY backend/ .
 COPY --from=web /web/dist /app/frontend/dist
 RUN useradd -m vayu && mkdir -p /data && chown -R vayu /data /app
 USER vayu
-ENV VAYU_DATABASE_URL=sqlite:////data/vayu.db
+ENV VAYU_DATABASE_URL=sqlite:////data/vayu.db VAYU_SEED_DEMO=false
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"
-CMD ["sh", "-c", "python -m scripts.seed --no-demo && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# One worker on purpose: the background scheduler lives in the web process.
+CMD ["sh", "-c", "python -m scripts.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]

@@ -1,5 +1,8 @@
 # Deployment
 
+**Recommended free option:** a full 24x7 install on Oracle Cloud Always Free with one command.
+See [deploy-oracle.md](deploy-oracle.md).
+
 ## Option 1: Docker on any VM
 
 ```bash

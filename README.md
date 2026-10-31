@@ -100,6 +100,16 @@ npm run dev                        # http://localhost:5173
 Sign in with the demo account `demo@vayu.local` / `vayu-demo-2026` (asthma profile, a saved weekday
 commute in Bengaluru and two weeks of location history), or create your own.
 
+### Deploy (free, 24x7)
+
+On an Oracle Cloud Always Free Ubuntu VM:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PrachiYadav-16/vayu-aqi/main/deploy/oracle/setup.sh | bash
+```
+
+Full walkthrough: [docs/deploy-oracle.md](docs/deploy-oracle.md).
+
 ### With Docker
 
 ```bash
@@ -146,7 +156,8 @@ real data; rerun the report after training on live readings.
 * [API reference](docs/api.md)
 * [Model evaluation](docs/model-report.md)
 * [Testing and load test results](docs/testing.md)
-* [Deployment guide](docs/deployment.md)
+* [Deploy free on Oracle Cloud (one command)](docs/deploy-oracle.md)
+* [Other deployment options](docs/deployment.md)
 
 ## Known limitations
 

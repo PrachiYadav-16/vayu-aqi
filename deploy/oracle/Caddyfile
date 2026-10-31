@@ -1,0 +1,15 @@
+{$VAYU_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8000
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(self)"
+	}
+
+	# The service worker must never be cached, or updates take days to reach phones.
+	@sw path /sw.js
+	header @sw Cache-Control "no-cache"
+}
