@@ -111,9 +111,18 @@ class ForecastService:
         X, sids, _ = to_grid(df, city_of, end=pd.Timestamp(latest), hours=WINDOW)
         aqi_now = np.expm1(X[:, -1, FEATURES.index("aqi")])
 
-        last_rows = df.sort_values("ts").groupby("station_id").tail(1).set_index("station_id")
-        pol = np.array([[float(last_rows.at[s, p]) if s in last_rows.index and pd.notna(last_rows.at[s, p]) else np.nan
-                         for p in POLLUTANTS] for s in sids])
+        # Report concentrations over the CPCB averaging windows (24 h, or 8 h for O3/CO)
+        # so the pollutant breakdown agrees with the AQI built from the same rule.
+        from app.ingest.pipeline import _AVG_HOURS
+
+        pol = np.full((len(sids), len(POLLUTANTS)), np.nan)
+        df_sorted = df.sort_values("ts")
+        for i, s in enumerate(sids):
+            rows = df_sorted[df_sorted["station_id"] == s]
+            for j, p in enumerate(POLLUTANTS):
+                window = rows[rows["ts"] > pd.Timestamp(latest) - pd.Timedelta(hours=_AVG_HOURS.get(p, 1))][p]
+                if window.notna().any():
+                    pol[i, j] = float(window.mean())
 
         Xs = None
         if self._model is not None:

@@ -188,3 +188,8 @@ def test_mask_advice_does_not_crash(client, auth):
         assert r.status_code == 200, r.text
         assert any(s["type"] == "mask" for s in r.json()["suggestions"])
     client.patch("/api/me", headers=auth, json={"clear_custom_threshold": True})
+
+
+def test_meta_reports_data_source(client):
+    m = client.get("/api/air/meta").json()
+    assert m["data_source"] == "simulated" and m["data_mode"] == "simulated"

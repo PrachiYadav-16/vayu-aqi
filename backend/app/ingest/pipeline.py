@@ -113,6 +113,7 @@ def ingest_live(now: datetime | None = None) -> dict:
 # CPCB averaging periods: particulates, NO2 and SO2 over 24 h; O3 and CO over 8 h.
 _AVG_HOURS = {"pm25": 24, "pm10": 24, "no2": 24, "so2": 24, "o3": 8, "co": 8}
 BACKFILL_DAYS = 31
+_last_refill: datetime | None = None
 
 
 def naqi_series(df: pd.DataFrame) -> pd.Series:
@@ -135,6 +136,14 @@ def _traffic_index(ts: pd.DatetimeIndex, bias: float) -> np.ndarray:
     return np.clip(base * (0.85 + 0.3 * (bias - 0.85)), 0, 1)
 
 
+def _weather_gaps(now: datetime) -> bool:
+    if get_settings().timeseries_backend != "sql":
+        return False
+    since = now - timedelta(days=BACKFILL_DAYS - 1)
+    with SessionLocal() as db:
+        return db.scalar(select(Reading.id).where(Reading.ts >= since, Reading.temp.is_(None)).limit(1)) is not None
+
+
 def ingest_open_meteo(now: datetime) -> dict:
     store = get_store()
     bias = {sid: b for sid, *_, b in SEED_STATIONS}
@@ -146,7 +155,14 @@ def ingest_open_meteo(now: datetime) -> dict:
 
     last = store.latest_ts()
     switching = any(src != "open-meteo" for *_, src in stations) or last is None
-    if switching:
+    # If an earlier run stored hours without weather (rate limit), refetch the whole
+    # window so the gaps get filled once the weather API answers again.
+    global _last_refill
+    refill = (not switching and (_last_refill is None or now - _last_refill >= timedelta(hours=3))
+              and _weather_gaps(now))
+    if refill:
+        _last_refill = now  # at most one full refetch every 3 h while gaps remain
+    if switching or refill:
         past_days = BACKFILL_DAYS
     else:
         gap_days = max(0.0, (now - last).total_seconds() / 86400)
@@ -170,7 +186,7 @@ def ingest_open_meteo(now: datetime) -> dict:
         df["traffic"] = _traffic_index(df.index, bias.get(sid, 1.0))
         # The first day of a short fetch lacks a full 24 h window; those hours were
         # already stored with complete windows by an earlier run.
-        if not switching:
+        if not (switching or refill):
             df = df[df.index >= df.index[0] + pd.Timedelta(hours=24)]
         for ts, r in df.iterrows():
             row = {"station_id": sid, "ts": ts.to_pydatetime()}
@@ -192,7 +208,7 @@ def ingest_open_meteo(now: datetime) -> dict:
             for st in db.scalars(select(Station)).all():
                 st.source = "open-meteo"
             db.commit()
-    log.info("Open-Meteo ingest wrote %s rows (past_days=%s)", written, past_days)
+    log.info("Open-Meteo ingest wrote %s rows (past_days=%s, refill=%s)", written, past_days, refill)
     return {"mode": "live", "source": "open-meteo", "written": written}
 
 

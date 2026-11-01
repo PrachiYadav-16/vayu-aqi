@@ -200,6 +200,18 @@ class OpenMeteoClient:
         data = r.json()
         return data if isinstance(data, list) else [data]
 
+    def _get_retry(self, *args, **kw) -> list[dict]:
+        import time
+
+        for attempt in range(3):
+            try:
+                return self._get(*args, **kw)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 429 or attempt == 2:
+                    raise
+                time.sleep(4 * (attempt + 1))  # free tier: back off and try again
+        raise RuntimeError("unreachable")
+
     def hourly(self, coords: list[tuple[float, float]], past_days: int):
         """Return one DataFrame per coordinate (UTC hourly index), or None on failure."""
         import pandas as pd
@@ -207,26 +219,35 @@ class OpenMeteoClient:
         if not self.enabled or not coords:
             return None
         try:
-            aq = self._get(self.aq_url, coords, past_days, self._aq)
+            aq = self._get_retry(self.aq_url, coords, past_days, self._aq)
         except Exception as exc:
             log.warning("Open-Meteo air quality fetch failed: %s", exc)
             return None
+
+        # Weather changes slowly in space: fetch it once per ~25 km cell, not per station.
+        cells = sorted({(round(c[0] * 4) / 4, round(c[1] * 4) / 4) for c in coords})
+        weather: dict[tuple[float, float], pd.DataFrame] = {}
         try:
-            wx = self._get(self.wx_url, coords, past_days, self._wx, {"wind_speed_unit": "ms"})
+            wx = self._get_retry(self.wx_url, cells, past_days, self._wx, {"wind_speed_unit": "ms"})
+            for cell, w in zip(cells, wx):
+                h = w["hourly"]
+                weather[cell] = pd.DataFrame({ours: h.get(theirs) for theirs, ours in self._wx.items()},
+                                             index=pd.to_datetime(h["time"], utc=True))
         except Exception as exc:  # weather is optional; the model fills gaps
             log.warning("Open-Meteo weather fetch failed: %s", exc)
-            wx = None
+
         frames = []
-        for i, loc in enumerate(aq):
+        for c, loc in zip(coords, aq):
             h = loc["hourly"]
             idx = pd.to_datetime(h["time"], utc=True)
             df = pd.DataFrame({ours: h.get(theirs) for theirs, ours in self._aq.items()}, index=idx)
             df["co"] = df["co"] / 1000.0  # ug/m3 -> mg/m3, the unit CPCB breakpoints use
-            if wx and i < len(wx):
-                w = wx[i]["hourly"]
-                wdf = pd.DataFrame({ours: w.get(theirs) for theirs, ours in self._wx.items()},
-                                   index=pd.to_datetime(w["time"], utc=True))
+            wdf = weather.get((round(c[0] * 4) / 4, round(c[1] * 4) / 4))
+            if wdf is not None:
                 df = df.join(wdf, how="left")
+            else:
+                for col in self._wx.values():
+                    df[col] = float("nan")
             frames.append(df.astype(float))
         return frames
 

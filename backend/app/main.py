@@ -57,9 +57,13 @@ _dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if _dist.exists():
     app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
 
+    # index.html and sw.js must be revalidated on every load, or browsers keep
+    # running the previous release after a deploy. Hashed /assets can cache forever.
+    _no_cache = {"Cache-Control": "no-cache"}
+
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
         f = _dist / path
         if path and f.is_file():
-            return FileResponse(f)
-        return FileResponse(_dist / "index.html")
+            return FileResponse(f, headers=_no_cache if f.suffix in (".js", ".html", ".webmanifest") else None)
+        return FileResponse(_dist / "index.html", headers=_no_cache)

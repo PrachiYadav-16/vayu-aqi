@@ -1,5 +1,5 @@
 /* Vayu service worker: offline shell, API fallback cache and push display. */
-const SHELL = "vayu-shell-v1";
+const SHELL = "vayu-shell-v2";
 const API = "vayu-api-v1";
 
 self.addEventListener("install", (e) => {
@@ -50,7 +50,7 @@ self.addEventListener("fetch", (e) => {
   }
   // Navigation: network, falling back to the cached shell.
   if (e.request.mode === "navigate") {
-    e.respondWith(fetch(e.request).catch(() => caches.match("/index.html")));
+    e.respondWith(fetch(e.request, { cache: "no-cache" }).catch(() => caches.match("/index.html")));
   }
 });
 

@@ -22,6 +22,8 @@ FEATURES = [
 
 _LOG_COLS = ["aqi", "pm25", "pm10", "no2", "co", "city_aqi"]
 AQI_SCALE = 100.0  # targets are AQI / 100
+# Neutral values for weather/traffic when a station has none at all in the window.
+_TYPICAL = {"temp": 26.0, "humidity": 60.0, "wind_speed": 2.0, "wind_dir": 180.0, "traffic": 0.4}
 
 
 def to_grid(df: pd.DataFrame, station_city: dict[str, str], end: pd.Timestamp | None = None,
@@ -49,6 +51,8 @@ def to_grid(df: pd.DataFrame, station_city: dict[str, str], end: pd.Timestamp | 
         # Short gaps: carry forward up to 6 h, then fall back to the station's own median.
         p = p.ffill(limit=6).bfill(limit=2)
         p = p.fillna(p.median())
+        if c in _TYPICAL:  # a source that never reported this column (e.g. weather rate-limited)
+            p = p.fillna(_TYPICAL[c])
         cube[c] = p.to_numpy(dtype=np.float32).T  # (S, T)
 
     # City-level context: mean AQI across the station's city at the same hour.
