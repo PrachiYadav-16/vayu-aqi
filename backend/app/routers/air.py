@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.aqi.naqi import CATEGORIES, POLLUTANT_LABELS, category_for
 from app.forecast.service import get_forecast_service
 from app.forecast.spatial import SEARCH_RADIUS_KM, interpolate
-from app.ingest.sources import any_pollutant_source
+from app.ingest.sources import any_pollutant_source, data_source
 from app.notify.fcm import push_enabled
 from app.routing import geocode
 
@@ -27,6 +27,7 @@ def meta():
                         "impact": c.impact} for c in CATEGORIES],
         "pollutants": POLLUTANT_LABELS,
         "data_mode": "live" if any_pollutant_source() else "simulated",
+        "data_source": data_source(),
         "push_enabled": push_enabled(),
         "latest_reading": sf.issued_at.isoformat() if sf else None,
         "model": svc.model_info,

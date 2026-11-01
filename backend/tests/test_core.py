@@ -100,3 +100,40 @@ def test_congestion_factor_peaks_in_rush_hour():
     night = congestion_factor(int(datetime(2026, 11, 2, 3, 0, tzinfo=ist).timestamp()))
     peak = congestion_factor(int(datetime(2026, 11, 2, 19, 0, tzinfo=ist).timestamp()))
     assert 1.3 < night < 1.6 and 2.0 < peak < 2.4
+
+
+def test_open_meteo_parsing_and_cpcb_averaging(monkeypatch):
+    import pandas as pd
+
+    from app.ingest import sources
+    from app.ingest.pipeline import naqi_series
+
+    times = [f"2026-11-01T{h:02d}:00" for h in range(24)] + [f"2026-11-02T{h:02d}:00" for h in range(24)]
+    aq = {"hourly": {"time": times, "pm2_5": [60.0] * 48, "pm10": [100.0] * 48, "nitrogen_dioxide": [20.0] * 48,
+                     "ozone": [40.0] * 40 + [400.0] * 8, "carbon_monoxide": [800.0] * 48,
+                     "sulphur_dioxide": [5.0] * 48}}
+    wx = {"hourly": {"time": times, "temperature_2m": [25.0] * 48, "relative_humidity_2m": [50] * 48,
+                     "wind_speed_10m": [2.0] * 48, "wind_direction_10m": [90] * 48}}
+
+    class Resp:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    monkeypatch.setattr(sources.httpx, "get", lambda url, **kw: Resp([aq, aq] if "air-quality" in url else [wx, wx]))
+    monkeypatch.setattr(sources.get_settings(), "open_meteo", True)
+    frames = sources.OpenMeteoClient().hourly([(28.6, 77.2), (12.9, 77.6)], past_days=1)
+    assert len(frames) == 2 and str(frames[0].index.tz) == "UTC"
+    assert frames[0]["co"].iloc[0] == 0.8 and frames[0]["temp"].iloc[0] == 25.0
+    aqi = naqi_series(frames[0])
+    # PM2.5 60 ug/m3 over 24 h -> AQI 100. A single-hour ozone spike must not
+    # dominate; a sustained 8 h one must.
+    assert aqi.iloc[30] == 100
+    assert aqi.iloc[40] == 100
+    assert aqi.iloc[47] > 300
+    assert isinstance(aqi.index, pd.DatetimeIndex)

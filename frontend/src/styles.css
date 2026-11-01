@@ -79,6 +79,7 @@ button, input, select { font: inherit; color: inherit; }
 .hero p { color: var(--navy-muted); max-width: 60ch; margin: 12px auto 0; font-size: 1.0625rem; }
 .hero .data-note { margin-top: 14px; font-size: 0.875rem; color: var(--navy-muted); }
 .hero .data-note b { color: #ffd9c2; font-weight: 600; }
+.hero .data-note a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .hero-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
 
 .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 24px 64px; }

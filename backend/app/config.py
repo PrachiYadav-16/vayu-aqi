@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     waqi_token: str = ""
     openweather_api_key: str = ""
     tomtom_api_key: str = ""
+    # Open-Meteo serves Copernicus CAMS air quality and weather with no key or signup.
+    open_meteo: bool = True
     google_maps_api_key: str = ""
     osrm_url: str = "https://routing.openstreetmap.de"
     nominatim_url: str = "https://nominatim.openstreetmap.org"

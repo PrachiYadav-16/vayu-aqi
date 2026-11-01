@@ -172,5 +172,74 @@ class TomTomTrafficClient:
             return None
 
 
+class OpenMeteoClient:
+    """Copernicus CAMS air quality plus weather from Open-Meteo (free, no key, CC BY 4.0).
+
+    One request covers every station: coordinates are passed as comma-separated lists.
+    Values are hourly model analyses on a ~10 km grid, not single-sensor readings."""
+
+    aq_url = "https://air-quality-api.open-meteo.com/v1/air-quality"
+    wx_url = "https://api.open-meteo.com/v1/forecast"
+    _aq = {"pm2_5": "pm25", "pm10": "pm10", "nitrogen_dioxide": "no2", "ozone": "o3",
+           "carbon_monoxide": "co", "sulphur_dioxide": "so2"}
+    _wx = {"temperature_2m": "temp", "relative_humidity_2m": "humidity",
+           "wind_speed_10m": "wind_speed", "wind_direction_10m": "wind_dir"}
+
+    @property
+    def enabled(self) -> bool:
+        return get_settings().open_meteo
+
+    def _get(self, url: str, coords, past_days: int, fields, extra=None) -> list[dict] | None:
+        params = {"latitude": ",".join(f"{c[0]:.4f}" for c in coords),
+                  "longitude": ",".join(f"{c[1]:.4f}" for c in coords),
+                  "hourly": ",".join(fields), "past_days": past_days, "forecast_days": 1,
+                  "timezone": "GMT", **(extra or {})}
+        r = httpx.get(url, params=params, timeout=httpx.Timeout(40.0),
+                      headers={"User-Agent": "vayu-aqi/1.0"})
+        r.raise_for_status()
+        data = r.json()
+        return data if isinstance(data, list) else [data]
+
+    def hourly(self, coords: list[tuple[float, float]], past_days: int):
+        """Return one DataFrame per coordinate (UTC hourly index), or None on failure."""
+        import pandas as pd
+
+        if not self.enabled or not coords:
+            return None
+        try:
+            aq = self._get(self.aq_url, coords, past_days, self._aq)
+        except Exception as exc:
+            log.warning("Open-Meteo air quality fetch failed: %s", exc)
+            return None
+        try:
+            wx = self._get(self.wx_url, coords, past_days, self._wx, {"wind_speed_unit": "ms"})
+        except Exception as exc:  # weather is optional; the model fills gaps
+            log.warning("Open-Meteo weather fetch failed: %s", exc)
+            wx = None
+        frames = []
+        for i, loc in enumerate(aq):
+            h = loc["hourly"]
+            idx = pd.to_datetime(h["time"], utc=True)
+            df = pd.DataFrame({ours: h.get(theirs) for theirs, ours in self._aq.items()}, index=idx)
+            df["co"] = df["co"] / 1000.0  # ug/m3 -> mg/m3, the unit CPCB breakpoints use
+            if wx and i < len(wx):
+                w = wx[i]["hourly"]
+                wdf = pd.DataFrame({ours: w.get(theirs) for theirs, ours in self._wx.items()},
+                                   index=pd.to_datetime(w["time"], utc=True))
+                df = df.join(wdf, how="left")
+            frames.append(df.astype(float))
+        return frames
+
+
+def data_source() -> str:
+    if OpenAQClient().enabled:
+        return "openaq"
+    if WAQIClient().enabled:
+        return "waqi"
+    if OpenMeteoClient().enabled:
+        return "open-meteo"
+    return "simulated"
+
+
 def any_pollutant_source() -> bool:
-    return OpenAQClient().enabled or WAQIClient().enabled
+    return data_source() != "simulated"

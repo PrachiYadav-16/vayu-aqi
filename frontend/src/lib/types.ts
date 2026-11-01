@@ -13,6 +13,7 @@ export interface Meta {
   categories: Category[];
   pollutants: Record<string, string>;
   data_mode: "live" | "simulated";
+  data_source?: "openaq" | "waqi" | "open-meteo" | "simulated";
   push_enabled: boolean;
   latest_reading: string | null;
   model: {

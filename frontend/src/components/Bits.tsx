@@ -37,6 +37,9 @@ export function DataNote() {
     <p className="data-note">
       {t("data.updated", { ago: ago(meta.latest_reading, t) })}{" "}
       {meta.data_mode === "simulated" && <b>{t("data.demo")}</b>}
+      {meta.data_source === "open-meteo" && (
+        <a href="https://open-meteo.com/en/docs/air-quality-api" target="_blank" rel="noreferrer">{t("data.src_om")}</a>
+      )}
     </p>
   );
 }

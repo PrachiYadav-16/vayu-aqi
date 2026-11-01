@@ -7,6 +7,7 @@ import pytest
 _tmp = tempfile.mkdtemp(prefix="vayu-test-")
 os.environ["VAYU_DATABASE_URL"] = f"sqlite:///{Path(_tmp) / 'test.db'}"
 os.environ["VAYU_RUN_SCHEDULER"] = "false"
+os.environ["VAYU_OPEN_METEO"] = "false"  # tests run offline on simulated data
 os.environ["VAYU_OSRM_URL"] = "http://127.0.0.1:9"  # unreachable: forces the offline router
 os.environ["VAYU_NOMINATIM_URL"] = "http://127.0.0.1:9"
 

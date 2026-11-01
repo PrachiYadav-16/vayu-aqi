@@ -14,7 +14,7 @@ Infosys internship project by **Prachi Yadav** ([@PrachiYadav-16](https://github
 
 | Module | What is built |
 |---|---|
-| 1. Location and AQI data integration | Browser geolocation with an explicit consent switch, ingestion clients for OpenAQ v3, WAQI, OpenWeatherMap and TomTom traffic, fusion into one hourly record per station, health profiles, and a time-series store with SQL and InfluxDB backends |
+| 1. Location and AQI data integration | Browser geolocation with an explicit consent switch, ingestion from Open-Meteo (Copernicus CAMS air quality and weather, no key needed) by default, plus optional OpenAQ v3, WAQI, OpenWeatherMap and TomTom clients, fusion into one hourly record per station, health profiles, and a time-series store with SQL and InfluxDB backends |
 | 2. Forecasting model | 2-layer GRU trained with quantile loss for 1 to 24 hour forecasts with 80% intervals, ordinary kriging and IDW for estimates between stations, route exposure estimator, FastAPI prediction service, weekly retraining that only promotes a better model |
 | 3. Route advisory, dashboard, notifications | Trip planner with route alternatives and a departure-time scan, Firebase Cloud Messaging push, React PWA with a Leaflet map, forecast charts and route overlays, exposure history, notification preferences and quiet hours |
 | 4. Integration, testing, docs | 50 automated tests, Locust load test, Docker image, GitHub Actions CI, architecture, API, model evaluation and deployment docs |
