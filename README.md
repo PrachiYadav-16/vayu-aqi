@@ -6,6 +6,9 @@ Vayu predicts the Air Quality Index (India's CPCB scale) for the next 24 hours a
 works out how much polluted air you would breathe on each route and at each departure time, and alerts you
 when the air where you are, or on a trip you have saved, crosses the level that is safe for your health.
 
+**Live app: [vayu-aqi.onrender.com](https://vayu-aqi.onrender.com)**. Create a free account to try it. On the free
+hosting plan the first visit after a quiet spell can take up to a minute to wake the server.
+
 Infosys internship project by **Prachi Yadav** ([@PrachiYadav-16](https://github.com/PrachiYadav-16)).
 
 ![Air now screen](docs/screenshots/now.jpg)
