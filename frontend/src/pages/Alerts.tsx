@@ -3,12 +3,15 @@ import { Link } from "react-router-dom";
 import { Loading } from "../components/Bits";
 import { Page } from "../components/Shell";
 import { api, post } from "../lib/api";
+import { useSession } from "../lib/session";
 import { ago } from "../lib/format";
 import { useT, type Key } from "../lib/i18n";
 import type { AlertItem } from "../lib/types";
 
 export function AlertsPage() {
   const { t } = useT();
+  const { position } = useSession();
+  const [note, setNote] = useState<string | null>(null);
   const [data, setData] = useState<{ unread: number; alerts: AlertItem[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,8 +37,12 @@ export function AlertsPage() {
   };
 
   const brief = async () => {
+    setNote(null);
+    setError(null);
     try {
-      await post("/api/alerts/brief-now");
+      const q = position ? `?lat=${position.lat}&lon=${position.lon}` : "";
+      const r = await post<{ created: unknown[] }>(`/api/alerts/brief-now${q}`);
+      setNote(r.created.length ? t("alerts.brief_sent") : t("set.brief_none"));
       changed();
     } catch (e) {
       setError((e as Error).message);
@@ -51,6 +58,7 @@ export function AlertsPage() {
         </>
       }>
       {error && <p className="form-error" style={{ marginBottom: 12 }}>{error}</p>}
+      {note && <p className="notice" role="status">{note}</p>}
       <div className="section">
         {!data ? (
           <div className="card"><Loading /></div>

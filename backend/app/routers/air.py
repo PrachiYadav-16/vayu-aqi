@@ -89,6 +89,11 @@ def grid(south: float, west: float, north: float, east: float, hour: int = Query
     }
 
 
+@router.get("/place-name")
+def place_name(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180)):
+    return {"name": geocode.reverse(lat, lon)}
+
+
 @router.get("/places")
 def places(q: str = Query(..., min_length=2, max_length=120), lat: float | None = None, lon: float | None = None):
     near = (lat, lon) if lat is not None and lon is not None else None

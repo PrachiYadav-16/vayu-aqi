@@ -34,6 +34,7 @@ class SampledRoute:
     dt_s: np.ndarray         # time spent in each sample's segment
     hourly: np.ndarray       # (N, 24) forecast AQI at each sample
     current: np.ndarray      # (N,) current AQI
+    pm25_share: np.ndarray   # (N,) fraction of the AQI that is PM2.5
     issued_at: datetime
     coverage: str
 
@@ -63,9 +64,10 @@ def prepare(route: Route) -> SampledRoute:
         raise RuntimeError("No air quality data available yet")
     hourly = np.array([[h["aqi"] for h in p["hours"]] for p in pf], dtype=float)
     current = np.array([p["current_aqi"] for p in pf], dtype=float)
+    share = np.array([p.get("pm25_share", 1.0) for p in pf], dtype=float)
     cov = [p["coverage"] for p in pf]
     coverage = "outside" if cov.count("outside") > len(cov) / 2 else ("good" if cov.count("good") > len(cov) / 2 else "fair")
-    return SampledRoute(route, lat, lon, offset, dt, hourly, current,
+    return SampledRoute(route, lat, lon, offset, dt, hourly, current, share,
                         datetime.fromisoformat(pf[0]["issued_at"]), coverage)
 
 
@@ -91,7 +93,7 @@ def score(sr: SampledRoute, depart: datetime, mode_key: str, threshold: int) -> 
     mode = MODES.get(mode_key, MODES["driving"])
     aqi = aqi_at_times(sr, depart)
     dt_h = sr.dt_s / 3600
-    pm = np.array([pm25_for_aqi(a) for a in aqi])
+    pm = np.array([pm25_for_aqi(a) for a in aqi]) * sr.pm25_share
     dose = float((pm * mode.breathing_m3h * mode.infiltration * dt_h).sum())
     avg = float((aqi * sr.dt_s).sum() / max(sr.dt_s.sum(), 1))
     above = float(sr.dt_s[aqi > threshold].sum() / 60)

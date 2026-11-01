@@ -30,16 +30,19 @@ function Chart({ days, limit }: { days: Day[]; limit: number }) {
   const W = 720;
   const H = 230;
   const pad = { l: 34, r: 8, t: 16, b: 28 };
-  const top = Math.max(limit * 1.3, ...days.map((d) => d.cigarettes)) * 1.12;
+  // Round the axis to a tidy step (0.5, 1, 2, 5...) so the labels read naturally.
+  const raw = Math.max(limit * 1.3, ...days.map((d) => d.cigarettes)) * 1.05;
+  const step = [0.25, 0.5, 1, 2, 5, 10, 20].find((s) => raw / s <= 4) ?? 50;
+  const top = Math.ceil(raw / step) * step;
   const y = (v: number) => pad.t + (H - pad.t - pad.b) * (1 - v / top);
   const bw = (W - pad.l - pad.r) / days.length;
-  const ticks = [0, top / 2, top];
+  const ticks = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
   return (
     <svg className="hist" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Cigarettes per day">
       {ticks.map((v, i) => (
         <g key={i}>
           <line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} stroke="#efe8e2" />
-          <text x={pad.l - 6} y={y(v) + 4} textAnchor="end">{v.toFixed(1)}</text>
+          <text x={pad.l - 6} y={y(v) + 4} textAnchor="end">{Number.isInteger(v) ? v : v.toFixed(step < 0.5 ? 2 : 1)}</text>
         </g>
       ))}
       {days.map((d, i) => {

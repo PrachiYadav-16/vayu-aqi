@@ -34,7 +34,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [position, setPosition] = useState<Position | null>(null);
   const [positionError, setPositionError] = useState<string | null>(null);
   const lastPing = useRef(0);
-  const { setLang } = useT();
+  const { setLang, t } = useT();
 
   const refresh = useCallback(async () => {
     if (!getToken()) {
@@ -74,10 +74,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const onPositionError = useCallback((e: GeolocationPositionError) => {
     setPositionError(
       e.code === e.PERMISSION_DENIED
-        ? "Location is blocked for this site. Allow it in your browser settings to see air where you are."
-        : "Could not get your location right now."
+        ? t("loc.blocked")
+        : t("loc.unavailable")
     );
-  }, []);
+  }, [t]);
 
   // Watch position only after the user has said yes in Settings or onboarding.
   useEffect(() => {
@@ -92,11 +92,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const locateOnce = useCallback(() => {
     if (!("geolocation" in navigator)) {
-      setPositionError("This browser cannot share location.");
+      setPositionError(t("loc.unsupported"));
       return;
     }
     navigator.geolocation.getCurrentPosition(onPosition, onPositionError, { timeout: 15000 });
-  }, [onPosition, onPositionError]);
+  }, [onPosition, onPositionError, t]);
 
   const login = async (email: string, password: string) => {
     const t = await api<{ access_token: string }>("/api/auth/token", {

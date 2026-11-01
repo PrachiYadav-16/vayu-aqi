@@ -96,7 +96,7 @@ export function PlanPage() {
     }
   }, [params]);
 
-  const run = async () => {
+  const run = async (at: string = when) => {
     if (!origin || !dest) {
       setError(t("plan.need_places"));
       return;
@@ -105,9 +105,13 @@ export function PlanPage() {
     setError(null);
     setSaved(null);
     try {
-      const r = await post<Assessment>("/api/trips/assess", { origin, destination: dest, depart_at: fromLocalInput(when), mode });
+      const r = await post<Assessment>("/api/trips/assess", { origin, destination: dest, depart_at: fromLocalInput(at), mode });
       setResult(r);
       setSelected(r.recommended_route_id);
+      // On phones the result sits below the form; bring it into view.
+      if (window.innerWidth < 1100) {
+        window.setTimeout(() => document.getElementById("verdict-h")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -126,12 +130,18 @@ export function PlanPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang]);
 
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const save = async () => {
     if (!origin || !dest || !result) return;
+    setSaving(true);
+    setSaveError(null);
     try {
       setSaved(await post<Trip>("/api/trips", { origin, destination: dest, depart_at: result.depart_at, mode, label, repeat_weekdays: days }));
     } catch (err) {
-      setError((err as Error).message);
+      setSaveError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -153,7 +163,8 @@ export function PlanPage() {
               <PlaceInput label={t("plan.to")} value={dest} onChange={setDest} near={origin ?? position} currentLocation={here} />
               <label className="field">
                 <span>{t("plan.leaving")}</span>
-                <input className="input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required />
+                <input className="input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required
+                  min={toLocalInput(new Date(Date.now() - 30 * 60000))} max={toLocalInput(new Date(Date.now() + 24 * 3600000))} />
                 <span className="help">{t("plan.leaving_help")}</span>
               </label>
               <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
@@ -187,7 +198,11 @@ export function PlanPage() {
                             <button type="button" className="btn quiet small" onClick={() => setSelected(s.route_id!)}>{t("plan.show_route")}</button>
                           )}
                           {s.type === "departure" && s.depart_at && (
-                            <button type="button" className="btn quiet small" onClick={() => setWhen(toLocalInput(new Date(s.depart_at!)))}>
+                            <button type="button" className="btn quiet small" onClick={() => {
+                              const v = toLocalInput(new Date(s.depart_at!));
+                              setWhen(v);
+                              run(v);
+                            }}>
                               {t("plan.use_time", { time: timeLabel(s.depart_at) })}
                             </button>
                           )}
@@ -226,7 +241,8 @@ export function PlanPage() {
                       </div>
                       <span className="help">{t("plan.repeat_help")}</span>
                     </fieldset>
-                    <button type="button" className="btn dark" onClick={save}>{t("plan.save")}</button>
+                    {saveError && <p className="form-error" role="alert">{saveError}</p>}
+                    <button type="button" className="btn dark" onClick={save} disabled={saving}>{t("plan.save")}</button>
                   </>
                 )}
               </section>

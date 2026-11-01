@@ -10,6 +10,8 @@ Base URL `http://localhost:8000`. Interactive docs with request/response schemas
 | POST | `/api/auth/register` | `{email, name, password, sensitivity[], language}` | `{access_token}` |
 | POST | `/api/auth/token` | form: `username`, `password` | `{access_token}` |
 
+Sign-in is limited to 8 failed attempts per account in 15 minutes and sign-up to 10 per network address per hour (`429` with `Retry-After`).
+
 ## Air quality (public)
 
 | Method | Path | Notes |
@@ -19,7 +21,8 @@ Base URL `http://localhost:8000`. Interactive docs with request/response schemas
 | GET | `/api/air/stations/{id}` | Point forecast at a station |
 | GET | `/api/air/point?lat=&lon=` | Point forecast anywhere (see below) |
 | GET | `/api/air/grid?south=&west=&north=&east=&hour=&cells=` | Interpolated surface for the map; `null` where no station is near |
-| GET | `/api/air/places?q=&lat=&lon=` | Place search (Google, Nominatim or offline list) |
+| GET | `/api/air/places?q=&lat=&lon=` | Place search (Google, Nominatim or offline list), cached for a day |
+| GET | `/api/air/place-name?lat=&lon=` | Short name for a coordinate (reverse geocoding), e.g. for the home location |
 
 Point forecast response:
 
@@ -41,6 +44,7 @@ Point forecast response:
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/me` | Profile with computed `threshold` |
+| DELETE | `/api/me` | Delete the account with its trips, alerts, devices and location history |
 | PATCH | `/api/me` | Any of `name, language (en, hi, kn), notify_daily_brief, brief_hour, sensitivity, custom_threshold, clear_custom_threshold, home_lat, home_lon, location_consent, notify_push, notify_trip_advisories, quiet_start_hour, quiet_end_hour`. Setting `location_consent` to false deletes location history |
 | GET | `/api/me/sensitivity-groups` | Groups and their thresholds |
 | GET | `/api/me/here?lat=&lon=` | Point forecast plus personal advice (level, actions, next breach, cleanest hour), `budget` (today's dose against the WHO limit and its cigarette equivalent), `home` (window and purifier advice), `explain` (trend and the factors moving it). Text is in the user's language |
@@ -57,7 +61,7 @@ Point forecast response:
 | GET | `/api/trips/modes` | `walking, cycling, two_wheeler, auto, bus, driving` |
 | POST | `/api/trips/assess` | `{origin:{name,lat,lon}, destination:{...}, depart_at, mode}` |
 | GET | `/api/trips` | Saved trips with their last assessment |
-| POST | `/api/trips` | Assess body plus `label`, `repeat_weekdays` (0 = Monday) |
+| POST | `/api/trips` | Assess body plus `label`, `repeat_weekdays` (0 = Monday). A one-time trip must be in the future. Trips leaving within 24 h are assessed on save |
 | DELETE | `/api/trips/{id}` | |
 
 Assessment response (trimmed):
@@ -84,8 +88,8 @@ Assessment response (trimmed):
 | GET | `/api/alerts?limit=50` | `{unread, alerts[]}` newest first |
 | POST | `/api/alerts/{id}/read` | |
 | POST | `/api/alerts/read-all` | |
-| POST | `/api/alerts/check-now` | Run this user's alert rules immediately |
-| POST | `/api/alerts/brief-now` | Send today's morning air brief now |
+| POST | `/api/alerts/check-now` | Run this user's alert rules immediately; returns `created`, `trips`, `trips_due` (leaving within 3 h) |
+| POST | `/api/alerts/brief-now?lat=&lon=` | Send today's morning air brief now. Uses home or recent shared location, else the optional position passed in |
 
 ## Ops
 

@@ -37,6 +37,8 @@ def me(user: User = Depends(current_user)):
 @router.patch("", response_model=ProfileOut)
 def update_me(body: ProfileIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     data = body.model_dump(exclude_unset=True)
+    nullable = {"custom_threshold", "home_lat", "home_lon", "quiet_start_hour", "quiet_end_hour"}
+    data = {k: v for k, v in data.items() if v is not None or k in nullable}
     if data.pop("clear_custom_threshold", False):
         user.custom_threshold = None
     for k, v in data.items():
@@ -48,6 +50,17 @@ def update_me(body: ProfileIn, user: User = Depends(current_user), db: Session =
     return _profile(user)
 
 
+@router.delete("", status_code=204)
+def delete_account(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Delete the account and everything stored about it."""
+    from app.models import Alert, Trip
+
+    for model in (LocationPing, DeviceToken, Alert, Trip):
+        db.execute(delete(model).where(model.user_id == user.id))
+    db.delete(user)
+    db.commit()
+
+
 @router.get("/sensitivity-groups")
 def groups():
     return [{"key": k, "label": v[0], "threshold": v[1]} for k, v in SENSITIVITY_GROUPS.items()]
@@ -57,11 +70,11 @@ def _utc(ts: datetime) -> datetime:
     return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
 
 
-def today_pings(db: Session, user_id: int, now: datetime) -> list[tuple[datetime, int]]:
+def today_pings(db: Session, user_id: int, now: datetime) -> list[tuple]:
     midnight = now.astimezone(IST).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     rows = db.scalars(select(LocationPing).where(LocationPing.user_id == user_id, LocationPing.ts >= midnight,
                                                  LocationPing.aqi.is_not(None)).order_by(LocationPing.ts)).all()
-    return [(_utc(r.ts), r.aqi) for r in rows]
+    return [(_utc(r.ts), r.aqi, r.pm25) for r in rows]
 
 
 def personal_here(db: Session, user: User, lat: float, lon: float) -> dict | None:
@@ -81,7 +94,7 @@ def personal_here(db: Session, user: User, lat: float, lon: float) -> dict | Non
                     "cleanest_hour": cleanest}
     now = datetime.now(timezone.utc)
     pings = today_pings(db, user.id, now) if user.location_consent else []
-    pf["budget"] = insights.day_budget(now, pings, pf["current_aqi"], pf["hours"])
+    pf["budget"] = insights.day_budget(now, pings, pf["current_aqi"], pf["hours"], pf.get("pm25_share", 1.0))
     pf["home"] = insights.window_advice(pf["hours"], lang)
     idx = svc.nearest_station(lat, lon)
     effects = svc.explain_station(idx) if idx is not None else None
@@ -100,16 +113,19 @@ def ping(body: PingIn, user: User = Depends(current_user), db: Session = Depends
     if not user.location_consent:
         return {"stored": False, "reason": "Location sharing is off in your settings"}
     pf = get_forecast_service().point_forecast(body.lat, body.lon)
-    aqi = pf["current_aqi"] if pf and pf["coverage"] != "outside" else None
+    inside = pf is not None and pf["coverage"] != "outside"
+    aqi = pf["current_aqi"] if inside else None
+    pm25 = round(pm25_for_aqi(aqi) * pf.get("pm25_share", 1.0), 1) if inside else None
     # Store at most one ping per 10 minutes to keep history light.
     last = db.scalars(select(LocationPing).where(LocationPing.user_id == user.id)
                       .order_by(LocationPing.ts.desc()).limit(1)).first()
     now = datetime.now(timezone.utc)
     last_ts = last.ts.replace(tzinfo=timezone.utc) if last and last.ts.tzinfo is None else (last.ts if last else None)
     if last_ts and now - last_ts < timedelta(minutes=10):
-        last.lat, last.lon, last.aqi, last.accuracy_m, last.ts = body.lat, body.lon, aqi, body.accuracy_m, now
+        last.lat, last.lon, last.aqi, last.pm25, last.accuracy_m, last.ts = body.lat, body.lon, aqi, pm25, body.accuracy_m, now
     else:
-        db.add(LocationPing(user_id=user.id, lat=body.lat, lon=body.lon, accuracy_m=body.accuracy_m, aqi=aqi, ts=now))
+        db.add(LocationPing(user_id=user.id, lat=body.lat, lon=body.lon, accuracy_m=body.accuracy_m, aqi=aqi,
+                            pm25=pm25, ts=now))
     db.commit()
     return {"stored": True, "aqi": aqi}
 
@@ -124,7 +140,9 @@ def clear_history(user: User = Depends(current_user), db: Session = Depends(get_
 def exposure(days: int = Query(14, ge=1, le=30), user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Daily exposure summary from location history: each ping counts for the time
     until the next ping (capped at 1 hour)."""
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    # Exactly `days` calendar days in IST, today included, so the count matches the label.
+    since = (datetime.now(IST).replace(hour=0, minute=0, second=0, microsecond=0)
+             - timedelta(days=days - 1)).astimezone(timezone.utc)
     pings = db.scalars(select(LocationPing).where(LocationPing.user_id == user.id, LocationPing.ts >= since,
                                                   LocationPing.aqi.is_not(None))
                        .order_by(LocationPing.ts)).all()
@@ -139,7 +157,8 @@ def exposure(days: int = Query(14, ge=1, le=30), user: User = Depends(current_us
         d = per_day[ts.astimezone(IST).date().isoformat()]
         d["weighted"] += p.aqi * mins
         d["minutes"] += mins
-        d["dose"] += pm25_for_aqi(p.aqi) * insights.BREATHING_M3_PER_H * mins / 60
+        pm25 = p.pm25 if p.pm25 is not None else pm25_for_aqi(p.aqi)
+        d["dose"] += pm25 * insights.BREATHING_M3_PER_H * mins / 60
         d["peak"] = max(d["peak"], p.aqi)
         if p.aqi > threshold:
             d["above"] += mins

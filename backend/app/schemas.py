@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -7,9 +7,23 @@ from app.i18n import LANGUAGES
 from app.routing.providers import MODES
 
 
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _clean_name(v):
+    if v is None:
+        return v
+    v = " ".join(v.split())
+    if not v:
+        raise ValueError("Name cannot be empty")
+    return v
+
+
 class RegisterIn(BaseModel):
     email: EmailStr
     name: str = Field(min_length=1, max_length=120)
+
+    _name = field_validator("name")(classmethod(lambda cls, v: _clean_name(v)))
     password: str = Field(min_length=8, max_length=128)
     sensitivity: list[str] = []
     language: str = "en"
@@ -56,6 +70,8 @@ class ProfileOut(BaseModel):
 
 class ProfileIn(BaseModel):
     name: str | None = Field(default=None, max_length=120)
+
+    _name = field_validator("name")(classmethod(lambda cls, v: _clean_name(v)))
     sensitivity: list[str] | None = None
     custom_threshold: int | None = Field(default=None, ge=50, le=400)
     clear_custom_threshold: bool = False
@@ -105,6 +121,12 @@ class AssessIn(BaseModel):
     destination: PlaceIn
     depart_at: datetime
     mode: str = "driving"
+
+    @field_validator("depart_at")
+    @classmethod
+    def _tz(cls, v: datetime):
+        # A time without an offset is read as Indian Standard Time, like the app shows it.
+        return v.replace(tzinfo=IST) if v.tzinfo is None else v
 
     @field_validator("mode")
     @classmethod

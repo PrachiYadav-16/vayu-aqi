@@ -155,6 +155,8 @@ export function NowPage() {
   const onStation = useCallback((s: StationRow) => setPicked({ lat: s.lat, lon: s.lon, label: `${s.name}, ${s.city}` }), []);
 
   const cat = here ? catFor(here.current_aqi) : null;
+  // Far from every station the interpolated number would be a guess; do not show one.
+  const outside = here?.coverage === "outside";
   const hourText = hour === 0 ? t("map.now") : here?.hours[hour - 1] ? hourLabel(here.hours[hour - 1].ts) : `+${hour}`;
 
   return (
@@ -166,6 +168,26 @@ export function NowPage() {
           <section className="card" aria-labelledby="reading-h">
             {!here || !cat ? (
               <Loading />
+            ) : outside ? (
+              <div className="reading">
+                <div className="reading-top">
+                  <div className="reading-num" style={{ background: "var(--line-2)", color: "var(--ink-2)" }}>
+                    <span className="n">-</span>
+                    <span className="l">AQI</span>
+                  </div>
+                  <div className="reading-text">
+                    <h2 id="reading-h">{t("now.outside_title")}</h2>
+                    <p>{target.label}</p>
+                    <p className="small">{t("now.outside")}</p>
+                    {meta?.cities?.length ? <p className="tiny">{t("map.cities", { c: meta.cities.join(", ") })}</p> : null}
+                  </div>
+                </div>
+                <div className="row-actions">
+                  <button className="btn dark small" type="button" onClick={() => { setPicked(null); locateOnce(); }}>
+                    <Icon name="locate" size={16} /> {t("now.use_location")}
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="reading">
                 <div className="reading-top">
@@ -177,7 +199,7 @@ export function NowPage() {
                     <h2 id="reading-h">{catLabel(here.current_aqi)}</h2>
                     <p>{target.label}</p>
                     {here.dominant_pollutant && <p>{t("now.main_pollutant", { p: POLLUTANT_NAMES[here.dominant_pollutant] })}</p>}
-                    {here.coverage === "outside" ? <p><b>{t("now.outside")}</b></p> : <p className="tiny">{t("now.nearest", { km: here.nearest_station_km })}</p>}
+                    <p className="tiny">{t("now.nearest", { km: here.nearest_station_km })}</p>
                   </div>
                 </div>
                 <div className={`advice ${here.advice.level}`}>
@@ -223,7 +245,7 @@ export function NowPage() {
         </div>
       </div>
 
-      {here && (
+      {here && !outside && (
         <div className="section">
           <div className="section-head"><h2>{t("now.today_for_you")}</h2></div>
           <div className="grid-3">
@@ -234,9 +256,9 @@ export function NowPage() {
         </div>
       )}
 
-      {here && (
+      {here && !outside && (
         <div className="section">
-          <div className="grid-2" style={{ gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)" }}>
+          <div className="grid-2 wide-left">
             <section className="card">
               <h3 style={{ marginBottom: 8 }}>{t("now.next24")}</h3>
               <ForecastChart current={here.current_aqi} hours={here.hours} threshold={here.advice.threshold} />
@@ -255,8 +277,11 @@ export function NowPage() {
                         <td>{POLLUTANT_NAMES[k] ?? k}</td>
                         <td className="num">{k === "co" ? v.toFixed(2) : Math.round(v)} <span className="tiny">{POLLUTANT_UNITS[k]}</span></td>
                         <td style={{ paddingLeft: 12 }}>
-                          <div className="bar" title={`${t("table.subindex")} ${si}`}>
-                            <i style={{ width: `${Math.min(100, si / 5)}%`, background: catFor(si).color }} />
+                          <div className="si">
+                            <div className="bar" aria-hidden="true">
+                              <i style={{ width: `${Math.min(100, si / 5)}%`, background: catFor(si).color }} />
+                            </div>
+                            <span>{si}</span>
                           </div>
                         </td>
                       </tr>
@@ -264,6 +289,7 @@ export function NowPage() {
                   })}
                 </tbody>
               </table>
+              <p className="tiny" style={{ marginTop: 8 }}>{t("table.avg_note")}</p>
             </section>
           </div>
         </div>

@@ -24,8 +24,13 @@ export function TripsPage() {
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
-  const load = () => api<Trip[]>("/api/trips").then(setTrips).catch((e) => setError(e.message));
+  const isPast = (tr: Trip) => !tr.repeat_weekdays.length && new Date(tr.depart_at).getTime() < Date.now() - 10 * 60000;
+  // Upcoming and repeating trips first; one-time trips that already happened at the end.
+  const load = () => api<Trip[]>("/api/trips")
+    .then((list) => setTrips([...list].sort((a, b) => Number(isPast(a)) - Number(isPast(b)))))
+    .catch((e) => setError(e.message));
   useEffect(() => {
     load();
   }, []);
@@ -41,7 +46,9 @@ export function TripsPage() {
   const checkNow = async () => {
     setChecking(true);
     try {
-      await post("/api/alerts/check-now");
+      const r = await post<{ created: unknown[]; trips_due: number }>("/api/alerts/check-now");
+      setNote(r.created.length ? t("trips.checked_new", { n: r.created.length })
+        : r.trips_due ? t("trips.checked_ok") : t("trips.checked_none"));
       window.dispatchEvent(new Event("vayu:alerts-changed"));
       await load();
     } catch (e) {
@@ -60,6 +67,7 @@ export function TripsPage() {
         <button className="btn" type="button" onClick={checkNow} disabled={checking}>{checking ? t("trips.checking") : t("trips.check_all")}</button>
       ) : undefined}>
       {error && <p className="form-error" style={{ marginBottom: 12 }}>{error}</p>}
+      {note && <p className="notice" role="status">{note}</p>}
       <div className="section">
         {!trips ? (
           <div className="card"><Loading /></div>
@@ -73,10 +81,11 @@ export function TripsPage() {
             {trips.map((tr) => {
               const a = tr.last_assessment;
               const best = a?.routes?.find((r) => r.id === a.recommended_route_id);
+              const past = isPast(tr);
               return (
-                <li key={tr.id} className="trip-row">
+                <li key={tr.id} className={`trip-row${past ? " past" : ""}`}>
                   <div>
-                    <h3>{name(tr)}</h3>
+                    <h3>{name(tr)}{past && <span className="badge">{t("trips.past")}</span>}</h3>
                     <p className="small muted">{t("trips.to", { a: tr.origin_name.split(",")[0], b: tr.dest_name.split(",")[0] })}, {t(`mode.${tr.mode}` as Key)}</p>
                     <p className="small muted">{schedule(tr, t)}</p>
                     {best && (
@@ -85,6 +94,7 @@ export function TripsPage() {
                       </p>
                     )}
                     {a?.suggestions?.[0] && <p className="small muted">{a.suggestions[0].text}</p>}
+                    {a?.checked_at && <p className="tiny">{t("trips.checked_at", { time: `${dayLabel(a.checked_at)}, ${timeLabel(a.checked_at)}` })}</p>}
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <Link className="btn secondary small" to={href(tr)}>{t("trips.again")}</Link>

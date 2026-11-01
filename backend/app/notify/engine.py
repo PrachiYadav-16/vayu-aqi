@@ -115,6 +115,14 @@ def _next_departure(trip: Trip, now: datetime) -> datetime | None:
     return None
 
 
+def compact_assessment(result: dict) -> dict:
+    """What a saved trip keeps of an assessment: no geometry, no per-point strips."""
+    return {k: v for k, v in result.items() if k not in ("routes", "departure_scan")} | {
+        "routes": [{k: v for k, v in r.items() if k not in ("geometry", "strip")} for r in result["routes"]],
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def check_trip(db: Session, user: User, trip: Trip, now: datetime) -> Alert | None:
     if not user.notify_trip_advisories:
         return None
@@ -124,9 +132,7 @@ def check_trip(db: Session, user: User, trip: Trip, now: datetime) -> Alert | No
     lang = user.language or "en"
     result = assess((trip.origin_lat, trip.origin_lon), (trip.dest_lat, trip.dest_lon), dep, trip.mode,
                     user.sensitivity, user.custom_threshold, lang)
-    trip.last_assessment = {k: v for k, v in result.items() if k != "routes"} | {
-        "routes": [{k: v for k, v in r.items() if k not in ("geometry", "strip")} for r in result["routes"]]
-    }
+    trip.last_assessment = compact_assessment(result)
     subject = f"trip:{trip.id}:{dep.date().isoformat()}"
     if _recent_alert(db, user.id, "trip_advisory", subject, 24 * 60):
         return None
@@ -154,7 +160,13 @@ def _brief_place(db: Session, user: User, now: datetime) -> tuple[float, float] 
     return None
 
 
-def check_daily_brief(db: Session, user: User, now: datetime, force: bool = False) -> Alert | None:
+def trip_is_due(trip: Trip, now: datetime) -> bool:
+    dep = _next_departure(trip, now)
+    return dep is not None and dep - now <= timedelta(hours=3)
+
+
+def check_daily_brief(db: Session, user: User, now: datetime, force: bool = False,
+                      fallback_place: tuple[float, float] | None = None) -> Alert | None:
     """Morning summary: today's AQI range, when to open windows, when to run the
     purifier, and the day's cigarette equivalent. Sent once per day at brief_hour."""
     if not user.notify_daily_brief and not force:
@@ -165,7 +177,7 @@ def check_daily_brief(db: Session, user: User, now: datetime, force: bool = Fals
     subject = f"brief:{local.date().isoformat()}"
     if not force and _recent_alert(db, user.id, "daily_brief", subject, 20 * 60):
         return None
-    place = _brief_place(db, user, now)
+    place = _brief_place(db, user, now) or fallback_place
     if place is None:
         return None
     pf = get_forecast_service().point_forecast(*place)
@@ -175,7 +187,7 @@ def check_daily_brief(db: Session, user: User, now: datetime, force: bool = Fals
     day = pf["hours"][:16]
     lo, hi = min(h["aqi"] for h in day), max(h["aqi"] for h in day)
     home = insights.window_advice(pf["hours"], lang)
-    budget = insights.day_budget(now, [], pf["current_aqi"], pf["hours"])
+    budget = insights.day_budget(now, [], pf["current_aqi"], pf["hours"], pf.get("pm25_share", 1.0))
     body = " ".join(filter(None, [home["windows"]["text"] if home else "",
                                   home["purifier"]["text"] if home and home["purifier"]["action"] == "run" else "",
                                   t(lang, "brief.cigs", cig=round(budget["cigarettes_projected"], 1))]))

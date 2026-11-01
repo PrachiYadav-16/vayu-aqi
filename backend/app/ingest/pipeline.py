@@ -49,15 +49,18 @@ def _with_aqi(row: dict) -> dict:
 
 
 def frame_to_rows(frame: simulator.SimFrame) -> list[dict]:
+    """Simulated frame -> rows, with the AQI computed the same way as live data
+    (CPCB averaging windows), so both modes report comparable numbers."""
     rows = []
     fields = ("pm25", "pm10", "no2", "o3", "co", "so2", "temp", "humidity", "wind_speed", "wind_dir", "traffic")
-    arrays = {f: getattr(frame, f) for f in fields}
-    for t, ts in enumerate(frame.times):
-        for s, sid in enumerate(frame.station_ids):
-            row = {"station_id": sid, "ts": ts}
-            for f in fields:
-                row[f] = float(arrays[f][t, s])
-            rows.append(_with_aqi(row))
+    idx = pd.DatetimeIndex(pd.to_datetime(list(frame.times), utc=True))
+    for s, sid in enumerate(frame.station_ids):
+        df = pd.DataFrame({f: getattr(frame, f)[:, s].astype(float) for f in fields}, index=idx)
+        aqi = naqi_series(df)
+        for t, ts in enumerate(frame.times):
+            row = {"station_id": sid, "ts": ts, **{f: float(df[f].iat[t]) for f in fields}}
+            row["aqi"] = None if pd.isna(aqi.iat[t]) else int(round(aqi.iat[t]))
+            rows.append(row)
     return rows
 
 
@@ -80,8 +83,11 @@ def ingest_live(now: datetime | None = None) -> dict:
         since = (last + timedelta(hours=1)) if last else now - timedelta(days=30)
         if since > now:
             return {"mode": "simulated", "written": 0}
-        frame = simulator.simulate(until=now, since=since)
-        return {"mode": "simulated", "written": store.write(frame_to_rows(frame))}
+        # The simulator is deterministic, so re-simulate the previous day as well to
+        # give the 24 h averaging window full data, then store only the new hours.
+        frame = simulator.simulate(until=now, since=since - timedelta(hours=24))
+        rows = [r for r in frame_to_rows(frame) if r["ts"] >= since]
+        return {"mode": "simulated", "written": store.write(rows)}
 
     if data_source() == "open-meteo":
         return ingest_open_meteo(now)

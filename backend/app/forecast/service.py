@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import select
 
-from app.aqi.naqi import compute_aqi, category_for
+from app.aqi.naqi import category_for, compute_aqi, pm25_for_aqi
 from app.config import get_settings
 from app.db import SessionLocal
 from app.forecast.features import FEATURES, HORIZON, WINDOW, apply_scaler, to_grid
@@ -232,6 +232,13 @@ class ForecastService:
             q = v[1 + len(POLLUTANTS):].reshape(HORIZON, 3)
             spatial_sd = float(est.std[i]) if est.std is not None else 0.0
             _, dominant, subs = compute_aqi(pol)
+            # How much of the AQI is actually PM2.5. Doses and cigarette numbers are
+            # PM2.5 quantities, so when ozone or PM10 drive the AQI we must not read
+            # the whole index back as PM2.5.
+            share = 1.0
+            pm_equiv = pm25_for_aqi(cur) if cur > 0 else 0.0
+            if pm_equiv > 0 and np.isfinite(pol.get("pm25", np.nan)):
+                share = float(min(1.0, max(0.1, pol["pm25"] / pm_equiv)))
             hours = []
             for h in range(HORIZON):
                 lo, med, hi = q[h]
@@ -242,6 +249,7 @@ class ForecastService:
                     "low": max(0, round(float(lo - widen))),
                     "high": min(500, round(float(hi + widen))),
                     "category": category_for(med).key,
+                    "pm25": round(pm25_for_aqi(float(med)) * share, 1),
                 })
             nearest_km = float(est.nearest_km[i])
             results.append({
@@ -253,6 +261,7 @@ class ForecastService:
                 "dominant_pollutant": dominant,
                 "pollutants": {k: round(val, 2) for k, val in pol.items()},
                 "sub_indices": subs,
+                "pm25_share": round(share, 3),
                 "hours": hours,
                 "nearest_station_km": round(nearest_km, 2),
                 "coverage": "good" if nearest_km <= 8 else "fair" if nearest_km <= SEARCH_RADIUS_KM else "outside",

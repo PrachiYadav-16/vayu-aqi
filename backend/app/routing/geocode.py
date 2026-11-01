@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 
 import httpx
 
@@ -41,7 +43,58 @@ def _offline(q: str, limit: int) -> list[dict]:
     return [{"name": n, "lat": la, "lon": lo, "source": "offline"} for n, la, lo in hits[:limit]]
 
 
+_UA = {"User-Agent": "vayu-aqi/1.0 (+https://vayu-aqi.onrender.com)"}
+_cache: dict[tuple, tuple[float, object]] = {}
+_CACHE_TTL = 24 * 3600
+_nominatim_lock = threading.Lock()
+_nominatim_last = 0.0
+
+
+def _cached(key: tuple, fn):
+    hit = _cache.get(key)
+    if hit and time.time() - hit[0] < _CACHE_TTL:
+        return hit[1]
+    val = fn()
+    if val:
+        if len(_cache) > 5000:
+            _cache.clear()
+        _cache[key] = (time.time(), val)
+    return val
+
+
+def _nominatim(path: str, params: dict) -> object:
+    """Nominatim's usage policy allows at most one request per second."""
+    global _nominatim_last
+    with _nominatim_lock:
+        wait = 1.0 - (time.monotonic() - _nominatim_last)
+        if wait > 0:
+            time.sleep(wait)
+        _nominatim_last = time.monotonic()
+    return httpx.get(f"{get_settings().nominatim_url}{path}", params=params, timeout=8, headers=_UA).json()
+
+
+def reverse(lat: float, lon: float) -> str | None:
+    """Short human name for a coordinate, e.g. "Koramangala, Bengaluru"."""
+    def fetch():
+        try:
+            d = _nominatim("/reverse", {"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 16})
+            a = d.get("address", {})
+            local = a.get("suburb") or a.get("neighbourhood") or a.get("quarter") or a.get("road")
+            city = a.get("city") or a.get("town") or a.get("county") or a.get("state_district")
+            name = ", ".join(x for x in (local, city) if x)
+            return name or d.get("display_name")
+        except Exception as exc:
+            log.info("Reverse geocoding unavailable: %s", exc)
+            return None
+    return _cached(("rev", round(lat, 4), round(lon, 4)), fetch)
+
+
 def search(q: str, limit: int = 6, near: tuple[float, float] | None = None) -> list[dict]:
+    key = ("q", q.strip().lower(), limit, tuple(round(x, 1) for x in near) if near else None)
+    return _cached(key, lambda: _search(q, limit, near)) or []
+
+
+def _search(q: str, limit: int = 6, near: tuple[float, float] | None = None) -> list[dict]:
     s = get_settings()
     if s.google_maps_api_key:
         try:
@@ -58,10 +111,8 @@ def search(q: str, limit: int = 6, near: tuple[float, float] | None = None) -> l
         if near:
             lat, lon = near
             params["viewbox"] = f"{lon - 0.6},{lat + 0.6},{lon + 0.6},{lat - 0.6}"
-        r = httpx.get(f"{s.nominatim_url}/search", params=params, timeout=8,
-                      headers={"User-Agent": "vayu-aqi/1.0 (student project)"})
         res = [{"name": x["display_name"], "lat": float(x["lat"]), "lon": float(x["lon"]), "source": "osm"}
-               for x in r.json()]
+               for x in _nominatim("/search", params)]
         if res:
             return res
     except Exception as exc:

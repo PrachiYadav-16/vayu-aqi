@@ -32,12 +32,16 @@ def cigarettes(dose_ug: float) -> float:
     return round(dose_ug / UG_PER_CIGARETTE, 2)
 
 
-def dose_for(aqi: float, hours: float, breathing: float = BREATHING_M3_PER_H, infiltration: float = 1.0) -> float:
-    return pm25_for_aqi(aqi) * breathing * infiltration * hours
+def dose_for(aqi: float, hours: float, breathing: float = BREATHING_M3_PER_H, infiltration: float = 1.0,
+             pm25_share: float = 1.0) -> float:
+    """PM2.5 inhaled. `pm25_share` is the fraction of the AQI that is PM2.5 (1.0 when
+    PM2.5 is the dominant pollutant); without it an ozone-driven AQI would be
+    counted as if it were all particulates."""
+    return pm25_for_aqi(aqi) * pm25_share * breathing * infiltration * hours
 
 
-def day_budget(now: datetime, pings: list[tuple[datetime, int]], current_aqi: float,
-               hours: list[dict]) -> dict:
+def day_budget(now: datetime, pings: list[tuple], current_aqi: float,
+               hours: list[dict], pm25_share: float = 1.0) -> dict:
     """Today's (IST) outdoor-air dose: tracked pings for the past, the current
     estimate for untracked past hours, and the forecast for the rest of the day."""
     local_now = now.astimezone(IST)
@@ -45,20 +49,22 @@ def day_budget(now: datetime, pings: list[tuple[datetime, int]], current_aqi: fl
     end = midnight + timedelta(days=1)
 
     tracked_ug, tracked_h = 0.0, 0.0
-    for i, (ts, aqi) in enumerate(pings):
+    for i, ping in enumerate(pings):
+        ts, aqi = ping[0], ping[1]
+        pm25 = ping[2] if len(ping) > 2 else None
         nxt = pings[i + 1][0] if i + 1 < len(pings) else min(now, ts + timedelta(minutes=30))
         h = min(max((nxt - ts).total_seconds() / 3600, 0), 1.0)
-        tracked_ug += dose_for(aqi, h)
+        tracked_ug += pm25 * BREATHING_M3_PER_H * h if pm25 is not None else dose_for(aqi, h, pm25_share=pm25_share)
         tracked_h += h
     past_h = max((now - midnight).total_seconds() / 3600, 0)
-    untracked_ug = dose_for(current_aqi, max(past_h - tracked_h, 0))
+    untracked_ug = dose_for(current_aqi, max(past_h - tracked_h, 0), pm25_share=pm25_share)
     used = tracked_ug + untracked_ug
 
     rest = 0.0
     for hdict in hours:
         ts = datetime.fromisoformat(hdict["ts"])
         if now < ts <= end:
-            rest += dose_for(hdict["aqi"], 1.0)
+            rest += hdict["pm25"] * BREATHING_M3_PER_H if "pm25" in hdict else dose_for(hdict["aqi"], 1.0, pm25_share=pm25_share)
     projected = used + rest
     return {
         "budget_ug": WHO_DAILY_BUDGET_UG,

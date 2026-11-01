@@ -193,3 +193,100 @@ def test_mask_advice_does_not_crash(client, auth):
 def test_meta_reports_data_source(client):
     m = client.get("/api/air/meta").json()
     assert m["data_source"] == "simulated" and m["data_mode"] == "simulated"
+
+
+def _new_user(client, email):
+    r = client.post("/api/auth/register", json={"email": email, "name": "T", "password": "long-enough-1"})
+    assert r.status_code == 201, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def test_security_headers(client):
+    r = client.get("/api/health")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_login_is_throttled_after_repeated_failures(client):
+    _new_user(client, "throttle@example.com")
+    codes = [client.post("/api/auth/token", data={"username": "throttle@example.com", "password": "wrong-pass"}).status_code
+             for _ in range(9)]
+    assert codes[:8] == [401] * 8 and codes[8] == 429
+    # Other accounts are unaffected.
+    ok = client.post("/api/auth/token", data={"username": "asha@example.com", "password": "breathe-easy-1"})
+    assert ok.status_code == 200
+
+
+def test_saving_a_past_one_time_trip_is_rejected(client, auth):
+    past = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+    r = client.post("/api/trips", headers=auth, json=_trip_body(depart_at=past, label="old"))
+    assert r.status_code == 422
+    # A repeating trip may use any time of day as its template.
+    r = client.post("/api/trips", headers=auth, json=_trip_body(depart_at=past, label="daily", repeat_weekdays=[0, 1]))
+    assert r.status_code == 201
+    client.delete(f"/api/trips/{r.json()['id']}", headers=auth)
+
+
+def test_saved_trip_carries_its_assessment(client, auth):
+    r = client.post("/api/trips", headers=auth, json=_trip_body(label="with verdict"))
+    assert r.status_code == 201
+    a = r.json()["last_assessment"]
+    assert a and a["routes"] and "checked_at" in a and "geometry" not in a["routes"][0]
+    client.delete(f"/api/trips/{r.json()['id']}", headers=auth)
+
+
+def test_check_now_reports_counts(client, auth):
+    r = client.post("/api/alerts/check-now", headers=auth).json()
+    assert {"created", "trips", "trips_due"} <= r.keys()
+
+
+def test_brief_now_uses_passed_position_when_no_home(client):
+    h = _new_user(client, "brief@example.com")
+    assert client.post("/api/alerts/brief-now", headers=h).json()["created"] == []
+    r = client.post("/api/alerts/brief-now?lat=12.97&lon=77.59", headers=h).json()
+    assert len(r["created"]) == 1 and r["created"][0]["kind"] == "daily_brief"
+
+
+def test_pm25_share_keeps_doses_honest(client):
+    p = client.get("/api/air/point", params={"lat": 12.97, "lon": 77.59}).json()
+    assert 0.1 <= p["pm25_share"] <= 1.0
+    assert all("pm25" in h for h in p["hours"])
+
+
+def test_delete_account_removes_everything(client):
+    h = _new_user(client, "leaving@example.com")
+    client.patch("/api/me", headers=h, json={"location_consent": True})
+    client.post("/api/me/location", headers=h, json={"lat": 12.97, "lon": 77.59})
+    client.post("/api/trips", headers=h, json=_trip_body(label="bye"))
+    assert client.delete("/api/me", headers=h).status_code == 204
+    assert client.get("/api/me", headers=h).status_code == 401
+    r = client.post("/api/auth/token", data={"username": "leaving@example.com", "password": "long-enough-1"})
+    assert r.status_code == 401
+
+
+def test_input_edge_cases(client, auth):
+    assert client.post("/api/auth/register", json={"email": "blank@example.com", "name": "   ",
+                                                  "password": "long-enough-1"}).status_code == 422
+    assert client.patch("/api/me", headers=auth, json={"name": None}).status_code == 200
+    assert client.patch("/api/me", headers=auth, json={"name": "  "}).status_code == 422
+    assert client.patch("/api/me", headers=auth, json={"location_consent": None}).status_code == 200
+    assert client.get("/api/does-not-exist").status_code in (404, 405)
+
+
+def test_assess_rejects_trips_it_cannot_judge(client, auth):
+    far = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+    assert client.post("/api/trips/assess", headers=auth, json=_trip_body(depart_at=far)).status_code == 422
+    jaipur = {"name": "Jaipur", "lat": 26.91, "lon": 75.79}
+    jaipur2 = {"name": "Jaipur 2", "lat": 26.95, "lon": 75.84}
+    r = client.post("/api/trips/assess", headers=auth, json=_trip_body(origin=jaipur, destination=jaipur2))
+    assert r.status_code == 422 and "outside" in r.json()["detail"]
+    delhi = {"name": "Delhi", "lat": 28.61, "lon": 77.21}
+    assert client.post("/api/trips/assess", headers=auth, json=_trip_body(destination=delhi)).status_code == 422
+    same = _trip_body()
+    same["destination"] = same["origin"]
+    assert client.post("/api/trips/assess", headers=auth, json=same).status_code == 422
+    # Naive times are read as IST.
+    r = client.post("/api/trips/assess", headers=auth, json=_trip_body(
+        depart_at=(datetime.now(timezone.utc) + timedelta(hours=7)).strftime("%Y-%m-%dT%H:%M:%S")))
+    assert r.status_code == 200 and r.json()["depart_at"].endswith("+05:30")

@@ -121,6 +121,7 @@ class LocationPing(Base):
     lon: Mapped[float] = mapped_column(Float)
     accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     aqi: Mapped[int | None] = mapped_column(Integer, nullable=True)  # estimated AQI at ping time
+    pm25: Mapped[float | None] = mapped_column(Float, nullable=True)  # estimated PM2.5 (ug/m3) at ping time
 
 
 class Trip(Base):

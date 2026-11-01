@@ -24,10 +24,18 @@ export function SettingsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [pushState, setPushState] = useState<string | null>(null);
+  const [homeName, setHomeName] = useState<string | null>(null);
 
   useEffect(() => {
     api<Group[]>("/api/me/sensitivity-groups").then(setGroups).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    setHomeName(null);
+    if (user?.home_lat == null || user.home_lon == null) return;
+    api<{ name: string | null }>(`/api/air/place-name?lat=${user.home_lat}&lon=${user.home_lon}`)
+      .then((r) => setHomeName(r.name)).catch(() => undefined);
+  }, [user?.home_lat, user?.home_lon]);
 
   if (!user) return null;
 
@@ -59,15 +67,30 @@ export function SettingsPage() {
   };
 
   const sendBrief = async () => {
-    const r = await post<{ created: unknown[] }>("/api/alerts/brief-now");
-    window.dispatchEvent(new Event("vayu:alerts-changed"));
-    flash(r.created.length ? t("set.brief_sent") : t("set.brief_none"));
+    try {
+      const q = position ? `?lat=${position.lat}&lon=${position.lon}` : "";
+      const r = await post<{ created: unknown[] }>(`/api/alerts/brief-now${q}`);
+      window.dispatchEvent(new Event("vayu:alerts-changed"));
+      flash(r.created.length ? t("set.brief_sent") : t("set.brief_none"));
+    } catch (e) {
+      flash((e as Error).message);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!window.confirm(t("set.delete_confirm"))) return;
+    try {
+      await del("/api/me");
+      logout();
+    } catch (e) {
+      flash((e as Error).message);
+    }
   };
 
   return (
     <Page title={t("nav.settings")} subtitle={`${user.name}, ${user.email}`}
-      note={msg ? <p className="data-note" role="status"><b>{msg}</b></p> : undefined}
       actions={<button className="btn light small" type="button" onClick={logout}>{t("common.sign_out")}</button>}>
+      {msg && <div className="toast" role="status">{msg}</div>}
       <div className="section" style={{ maxWidth: 860, margin: "0 auto" }}>
         <div className="stack">
           <section className="card" aria-labelledby="lang-h">
@@ -122,7 +145,9 @@ export function SettingsPage() {
             <div className="switch-row">
               <div>
                 <strong>{t("set.home")}</strong>
-                <p>{user.home_lat != null ? t("set.home_set", { lat: user.home_lat.toFixed(3), lon: user.home_lon?.toFixed(3) ?? "" }) : t("set.home_unset")}</p>
+                <p>{user.home_lat == null ? t("set.home_unset")
+                  : homeName ? t("set.home_named", { name: homeName })
+                  : t("set.home_set", { lat: user.home_lat.toFixed(3), lon: user.home_lon?.toFixed(3) ?? "" })}</p>
               </div>
               <button className="btn secondary small" type="button" disabled={!position}
                 onClick={() => position && save({ home_lat: position.lat, home_lon: position.lon }, t("set.home_saved"))}>
@@ -151,9 +176,9 @@ export function SettingsPage() {
             </div>
             {user.notify_daily_brief && (
               <div className="switch-row">
-                <label className="field" style={{ flexDirection: "row", display: "flex", alignItems: "center", gap: 10 }}>
+                <label className="field inline-controls" style={{ flexDirection: "row", gap: 10 }}>
                   <span>{t("set.brief_at")}</span>
-                  <select className="select" style={{ width: 150 }} value={user.brief_hour}
+                  <select className="select" value={user.brief_hour}
                     onChange={(e) => save({ brief_hour: Number(e.target.value) })}>
                     {[5, 6, 7, 8, 9, 10].map((h) => <option key={h} value={h}>{hourOption(h)}</option>)}
                   </select>
@@ -182,19 +207,27 @@ export function SettingsPage() {
             </div>
             <div className="switch-row">
               <div><strong>{t("set.quiet")}</strong><p>{t("set.quiet_help")}</p></div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <select className="select" aria-label={t("set.quiet")} value={user.quiet_start_hour ?? ""} style={{ width: 120 }}
+              <div className="inline-controls">
+                <select className="select" aria-label={t("set.quiet")} value={user.quiet_start_hour ?? ""}
                   onChange={(e) => save({ quiet_start_hour: e.target.value === "" ? null : Number(e.target.value), quiet_end_hour: user.quiet_end_hour ?? 7 })}>
                   <option value="">{t("set.off")}</option>
                   {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourOption(h)}</option>)}
                 </select>
                 <span>{t("set.to")}</span>
-                <select className="select" aria-label={t("set.quiet")} value={user.quiet_end_hour ?? ""} style={{ width: 120 }}
+                <select className="select" aria-label={t("set.quiet")} value={user.quiet_end_hour ?? ""}
                   disabled={user.quiet_start_hour == null} onChange={(e) => save({ quiet_end_hour: Number(e.target.value) })}>
                   <option value="">-</option>
                   {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourOption(h)}</option>)}
                 </select>
               </div>
+            </div>
+          </section>
+
+          <section className="card" aria-labelledby="acct-h">
+            <h2 id="acct-h" style={{ fontSize: "1.5rem", marginBottom: 12 }}>{t("set.account")}</h2>
+            <div className="switch-row">
+              <div><strong>{t("set.delete")}</strong><p>{t("set.delete_help")}</p></div>
+              <button className="btn danger small" type="button" onClick={deleteAccount}>{t("set.delete")}</button>
             </div>
           </section>
         </div>

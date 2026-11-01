@@ -190,7 +190,7 @@ export interface Trip {
   depart_at: string;
   mode: string;
   repeat_weekdays: number[];
-  last_assessment: Partial<Assessment> | null;
+  last_assessment: (Partial<Assessment> & { checked_at?: string }) | null;
 }
 
 export interface AlertItem {

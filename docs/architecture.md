@@ -112,7 +112,7 @@ alerts and devices always live in the SQL database.
 
 ### Insights (`app/insights.py`)
 
-* Dose: PM2.5 equivalent of the AQI x breathing rate (18 m³ a day for an adult) x hours.
+* Dose: PM2.5 inhaled = forecast PM2.5 x breathing rate (18 m³ a day for an adult) x hours. The forecast is in AQI, so it is turned back into PM2.5 and scaled by the share of today's AQI that actually comes from PM2.5 (`pm25_share`); an ozone-driven AQI is not counted as particulates.
 * Cigarettes: dose / 396 µg (22 µg/m³ x 18 m³, Berkeley Earth's equivalence).
 * Daily budget: 270 µg (WHO 24-hour guideline of 15 µg/m³ x 18 m³). Today's figure combines tracked
   location points, the current estimate for untracked past hours and the forecast until midnight.
