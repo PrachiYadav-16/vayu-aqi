@@ -180,6 +180,8 @@ class OpenMeteoClient:
 
     aq_url = "https://air-quality-api.open-meteo.com/v1/air-quality"
     wx_url = "https://api.open-meteo.com/v1/forecast"
+    # Same data on a separate host; used when the main one rate-limits a shared cloud IP.
+    wx_url_alt = "https://historical-forecast-api.open-meteo.com/v1/forecast"
     _aq = {"pm2_5": "pm25", "pm10": "pm10", "nitrogen_dioxide": "no2", "ozone": "o3",
            "carbon_monoxide": "co", "sulphur_dioxide": "so2"}
     _wx = {"temperature_2m": "temp", "relative_humidity_2m": "humidity",
@@ -192,8 +194,14 @@ class OpenMeteoClient:
     def _get(self, url: str, coords, past_days: int, fields, extra=None) -> list[dict] | None:
         params = {"latitude": ",".join(f"{c[0]:.4f}" for c in coords),
                   "longitude": ",".join(f"{c[1]:.4f}" for c in coords),
-                  "hourly": ",".join(fields), "past_days": past_days, "forecast_days": 1,
-                  "timezone": "GMT", **(extra or {})}
+                  "hourly": ",".join(fields), "timezone": "GMT", **(extra or {})}
+        if url == self.wx_url_alt:  # this host takes a date range instead of past_days
+            from datetime import date, timedelta
+
+            params["start_date"] = (date.today() - timedelta(days=past_days)).isoformat()
+            params["end_date"] = (date.today() + timedelta(days=1)).isoformat()
+        else:
+            params.update(past_days=past_days, forecast_days=1)
         r = httpx.get(url, params=params, timeout=httpx.Timeout(40.0),
                       headers={"User-Agent": "vayu-aqi/1.0"})
         r.raise_for_status()
@@ -227,14 +235,16 @@ class OpenMeteoClient:
         # Weather changes slowly in space: fetch it once per ~25 km cell, not per station.
         cells = sorted({(round(c[0] * 4) / 4, round(c[1] * 4) / 4) for c in coords})
         weather: dict[tuple[float, float], pd.DataFrame] = {}
-        try:
-            wx = self._get_retry(self.wx_url, cells, past_days, self._wx, {"wind_speed_unit": "ms"})
-            for cell, w in zip(cells, wx):
-                h = w["hourly"]
-                weather[cell] = pd.DataFrame({ours: h.get(theirs) for theirs, ours in self._wx.items()},
-                                             index=pd.to_datetime(h["time"], utc=True))
-        except Exception as exc:  # weather is optional; the model fills gaps
-            log.warning("Open-Meteo weather fetch failed: %s", exc)
+        for url in (self.wx_url, self.wx_url_alt):
+            try:
+                wx = self._get_retry(url, cells, past_days, self._wx, {"wind_speed_unit": "ms"})
+                for cell, w in zip(cells, wx):
+                    h = w["hourly"]
+                    weather[cell] = pd.DataFrame({ours: h.get(theirs) for theirs, ours in self._wx.items()},
+                                                 index=pd.to_datetime(h["time"], utc=True))
+                break
+            except Exception as exc:  # weather is optional; the model fills gaps
+                log.warning("Open-Meteo weather fetch failed (%s): %s", url, exc)
 
         frames = []
         for c, loc in zip(coords, aq):
